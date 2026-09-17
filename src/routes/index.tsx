@@ -1,24 +1,35 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
+import "@/i18n";
+
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "Himinrond — 3D-kart over Norge" },
+      {
+        name: "description",
+        content:
+          "Himinrond er et 3D-kart over Norge med Bent World-visning: kartet bøyer seg opp i en ekte horisont.",
+      },
+      { property: "og:title", content: "Himinrond — 3D-kart over Norge" },
+      {
+        property: "og:description",
+        content:
+          "Himinrond er et 3D-kart over Norge med Bent World-visning: kartet bøyer seg opp i en ekte horisont.",
+      },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
 function Index() {
+  const { t } = useTranslation();
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
+    <main className="flex min-h-screen flex-col items-center justify-center bg-background">
+      <h1 className="font-serif text-[72px] italic leading-none text-foreground">Himinrond</h1>
+      <p className="mt-4 font-sans text-base text-muted-foreground">{t("tagline")}</p>
+    </main>
   );
 }
