@@ -16,6 +16,7 @@ if (!i18n.isInitialized) {
     lng: defaultLanguage,
     fallbackLng: "en",
     interpolation: { escapeValue: false },
+    react: { useSuspense: false },
   });
 }
 
