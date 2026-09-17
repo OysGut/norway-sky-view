@@ -15,7 +15,10 @@ if (!i18n.isInitialized) {
     },
     lng: defaultLanguage,
     fallbackLng: "en",
+    // Required for SSR: resources must be available synchronously on first render.
+    initImmediate: false,
     interpolation: { escapeValue: false },
+    react: { useSuspense: false },
   });
 }
 
