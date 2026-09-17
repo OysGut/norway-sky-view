@@ -52,6 +52,6 @@ export const useMapStore = create<MapState>((set) => ({
   setFollowNow: (followNow) => set({ followNow }),
   setMode: (mode) => set({ mode }),
   setBend: (bend) => set((state) => ({ bend: { ...state.bend, ...bend } })),
-  setLayer: (key, enabled) => set((state) => ({ layers: { ...state.layers, [key]: enabled } })),
-  setLayers: (layers) => set({ layers }),
+  setLayer: (key: string, enabled: boolean) => set((state) => ({ layers: { ...state.layers, [key]: enabled } })),
+  setLayers: (layers: Record<string, boolean>) => set({ layers }),
 }));
