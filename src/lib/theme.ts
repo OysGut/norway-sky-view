@@ -28,7 +28,7 @@ function applyTheme(theme: Theme) {
   if (typeof document === "undefined") return;
 
   if (theme === "light") {
-    document.documentElement.dataset.theme = "light";
+    document.documentElement.dataset["theme"] = "light";
   } else {
     document.documentElement.removeAttribute("data-theme");
   }
