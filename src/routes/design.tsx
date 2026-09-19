@@ -138,7 +138,7 @@ function DesignPage() {
               <h3 className="text-xl font-medium text-foreground">{t("design.glass.title")}</h3>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("design.glass.description")}</p>
               <div className="mt-8">
-                <Readout label={t("design.readouts.elevation")} value="2 469 m" size="lg" />
+                <Readout label={t("design.readouts.elevation")} value={elevation} size="lg" />
               </div>
             </GlassPanel>
           </div>
