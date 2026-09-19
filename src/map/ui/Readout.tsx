@@ -17,7 +17,7 @@ const valueSizeClasses: Record<ReadoutSize, string> = {
 
 export function Readout({ label, value, unit, size = "md" }: ReadoutProps) {
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 transition-colors duration-[var(--motion-duration)] ease-[var(--motion-ease)]">
       <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
         {label}
       </div>

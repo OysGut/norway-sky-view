@@ -4,6 +4,26 @@ export type Theme = "dark" | "light";
 
 const THEME_STORAGE_KEY = "himinrond.theme";
 
+function readStoredTheme(): Theme {
+  if (typeof window === "undefined") return "dark";
+
+  try {
+    return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+function storeTheme(theme: Theme) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // The selected theme still applies when browser storage is unavailable.
+  }
+}
+
 function applyTheme(theme: Theme) {
   if (typeof document === "undefined") return;
 
@@ -20,8 +40,7 @@ export function useTheme() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-    const nextTheme: Theme = storedTheme === "light" ? "light" : "dark";
+    const nextTheme = readStoredTheme();
     setThemeState(nextTheme);
     applyTheme(nextTheme);
   }, []);
@@ -29,18 +48,14 @@ export function useTheme() {
   const setTheme = useCallback((nextTheme: Theme) => {
     setThemeState(nextTheme);
     applyTheme(nextTheme);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
-    }
+    storeTheme(nextTheme);
   }, []);
 
   const toggleTheme = useCallback(() => {
     setThemeState((currentTheme) => {
       const nextTheme: Theme = currentTheme === "dark" ? "light" : "dark";
       applyTheme(nextTheme);
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
-      }
+      storeTheme(nextTheme);
       return nextTheme;
     });
   }, []);

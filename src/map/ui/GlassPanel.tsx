@@ -24,5 +24,15 @@ export function GlassPanel({
   className,
   padding = "md",
 }: GlassPanelProps) {
-  return <Component className={cn("glass-panel", paddingClasses[padding], className)}>{children}</Component>;
+  return (
+    <Component
+      className={cn(
+        "glass-panel transition-colors duration-[var(--motion-duration)] ease-[var(--motion-ease)]",
+        paddingClasses[padding],
+        className,
+      )}
+    >
+      {children}
+    </Component>
+  );
 }
