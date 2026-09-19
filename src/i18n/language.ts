@@ -1,5 +1,6 @@
 // Shared language constants and resolution helpers for client and server.
 import { createIsomorphicFn } from "@tanstack/react-start";
+import { getCookie } from "@tanstack/react-start/server";
 
 export type Language = "nb" | "en";
 
@@ -33,10 +34,6 @@ function readClientCookie(name: string): string | undefined {
 /** Client: stored value → browser language → nb. Server: cookie → nb. */
 export const resolveLanguage = createIsomorphicFn()
   .server((): Language => {
-    // Lazily imported so the helper never reaches the client bundle.
-    const { getCookie } = require("@tanstack/react-start/server") as {
-      getCookie: (name: string) => string | undefined;
-    };
     const cookie = getCookie(LANGUAGE_COOKIE_NAME);
     return isLanguage(cookie) ? cookie : "nb";
   })
