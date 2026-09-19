@@ -14,7 +14,60 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      proxy_cache: {
+        Row: {
+          body: string
+          cache_key: string
+          content_type: string
+          expires_at: string
+          last_modified: string | null
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          cache_key: string
+          content_type: string
+          expires_at: string
+          last_modified?: string | null
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          cache_key?: string
+          content_type?: string
+          expires_at?: string
+          last_modified?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      usage_events: {
+        Row: {
+          created_at: string
+          id: number
+          kind: string
+          meta: Json
+          quantity: number
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: never
+          kind: string
+          meta?: Json
+          quantity?: number
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: never
+          kind?: string
+          meta?: Json
+          quantity?: number
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
