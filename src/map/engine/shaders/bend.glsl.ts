@@ -9,10 +9,11 @@ import type { BendParams } from "../bendMath";
 
 export const BEND_UNIFORM_NAMES = [
   "uBendFlat",
+  "uBendTransition",
   "uBendRadius",
   "uBendCompression",
+  "uBendCurveExponent",
   "uBendDrama",
-  "uBendFeather",
   "uBendThetaMax",
   "uBendBackward",
   "uBendEnabled",
@@ -25,10 +26,11 @@ export type BendUniforms = Record<BendUniformName, { value: number }>;
 export function createBendUniforms(p: BendParams): BendUniforms {
   return {
     uBendFlat: { value: p.flatM },
+    uBendTransition: { value: p.transitionM },
     uBendRadius: { value: p.radiusM },
     uBendCompression: { value: p.compressionM },
+    uBendCurveExponent: { value: p.curveExponent },
     uBendDrama: { value: p.drama },
-    uBendFeather: { value: p.featherM },
     uBendThetaMax: { value: p.thetaMax },
     uBendBackward: { value: p.backwardWeight },
     uBendEnabled: { value: p.enabled },
@@ -38,10 +40,11 @@ export function createBendUniforms(p: BendParams): BendUniforms {
 /** Copy params into an existing uniform set (call once per frame; no allocation). */
 export function updateBendUniforms(u: BendUniforms, p: BendParams): void {
   u.uBendFlat.value = p.flatM;
+  u.uBendTransition.value = p.transitionM;
   u.uBendRadius.value = p.radiusM;
   u.uBendCompression.value = p.compressionM;
+  u.uBendCurveExponent.value = p.curveExponent;
   u.uBendDrama.value = p.drama;
-  u.uBendFeather.value = p.featherM;
   u.uBendThetaMax.value = p.thetaMax;
   u.uBendBackward.value = p.backwardWeight;
   u.uBendEnabled.value = p.enabled;
@@ -50,32 +53,42 @@ export function updateBendUniforms(u: BendUniforms, p: BendParams): void {
 /** Uniform declarations + bend functions. Prepend to a vertex shader before main(). */
 export const BEND_GLSL = /* glsl */ `
 uniform float uBendFlat;
+uniform float uBendTransition;
 uniform float uBendRadius;
 uniform float uBendCompression;
+uniform float uBendCurveExponent;
 uniform float uBendDrama;
-uniform float uBendFeather;
 uniform float uBendThetaMax;
 uniform float uBendBackward;
 uniform float uBendEnabled;
 
-// f(d): identity inside the flat zone, logarithmic compression beyond. C1.
-float bendRemap(float d) {
-  if (d <= uBendFlat) return d;
-  return uBendFlat + uBendCompression * log(1.0 + (d - uBendFlat) / uBendCompression);
+// Smooth max(v, 0) with a quadratic knee of half-width w. C1.
+float bendSoftKnee(float v, float w) {
+  if (w <= 0.0) return max(v, 0.0);
+  if (v <= -w) return 0.0;
+  if (v >= w) return v;
+  return (v + w) * (v + w) / (4.0 * w);
 }
 
-// f'(d)
-float bendRemapDeriv(float d) {
-  if (d <= uBendFlat) return 1.0;
-  return uBendCompression / (uBendCompression + d - uBendFlat);
+float bendSoftKneeDeriv(float v, float w) {
+  if (w <= 0.0) return v > 0.0 ? 1.0 : 0.0;
+  if (v <= -w) return 0.0;
+  if (v >= w) return 1.0;
+  return (v + w) / (2.0 * w);
 }
 
-// Smooth max(u, 0) with a quadratic knee of half-width w. C1.
-float bendKnee(float u, float w) {
-  if (w <= 0.0) return max(u, 0.0);
-  if (u <= -w) return 0.0;
-  if (u >= w) return u;
-  return (u + w) * (u + w) / (4.0 * w);
+// Angle around the cylinder for an arc length a, with the art-directed profile.
+float bendAngle(float a) {
+  float quarter = 1.5707963267948966 * uBendRadius;
+  float theta;
+  if (a >= quarter) {
+    theta = 1.5707963267948966 + (a - quarter) / uBendRadius;
+  } else if (uBendCurveExponent == 1.0) {
+    theta = a / uBendRadius;
+  } else {
+    theta = 1.5707963267948966 * pow(a / quarter, uBendCurveExponent);
+  }
+  return min(theta, uBendThetaMax);
 }
 
 // Bend a WORLD-space point. Forward is -z; the user stands at the origin.
@@ -85,11 +98,15 @@ vec3 bendWorld(vec3 p) {
   if (weight <= 0.0 || sgn == 0.0) return p;
 
   float d = abs(p.z);
-  float f = bendRemap(d);
-  float a = bendKnee(f - uBendFlat, uBendFeather);
-  float base = f - a;
-  float theta = min(a / uBendRadius, uBendThetaMax);
-  float yEff = p.y * pow(bendRemapDeriv(d), uBendDrama);
+  float v = d - uBendFlat - uBendTransition;
+  float u = bendSoftKnee(v, uBendTransition);
+  if (u <= 0.0) return p;
+
+  float base = d - u;
+  float a = uBendCompression * log(1.0 + u / uBendCompression);
+  float theta = bendAngle(a);
+  float fPrime = 1.0 - bendSoftKneeDeriv(v, uBendTransition) * u / (uBendCompression + u);
+  float yEff = p.y * pow(max(fPrime, 1e-6), uBendDrama);
   float rr = uBendRadius + yEff;
 
   vec3 bent = vec3(p.x, rr * cos(theta) - uBendRadius, -(base + rr * sin(theta)) * sgn);

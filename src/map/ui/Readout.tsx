@@ -23,7 +23,9 @@ export function Readout({ label, value, unit, size = "md" }: ReadoutProps) {
       </div>
       <div className={cn("tabular mt-1 text-foreground", valueSizeClasses[size])}>
         {value}
-        {unit ? <span className="ml-1 font-sans text-[0.55em] text-muted-foreground">{unit}</span> : null}
+        {unit ? (
+          <span className="ml-1 font-sans text-[0.55em] text-muted-foreground">{unit}</span>
+        ) : null}
       </div>
     </div>
   );

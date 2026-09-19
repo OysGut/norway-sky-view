@@ -101,12 +101,25 @@ function CameraRig({
 function useBendUniforms(view: React.RefObject<ViewState>): BendUniforms {
   const uniforms = useMemo(() => {
     const s = useMapStore.getState();
-    return createBendUniforms(bendParamsFromView(s.cameraHeight, s.bend, s.bend.enabled));
+    const composition = {
+      userPointScreenFraction: s.userPointScreenFraction,
+      fovDeg: CAMERA_FOV_DEG,
+    };
+    return createBendUniforms(
+      bendParamsFromView(s.cameraHeight, s.bend, composition, s.bend.enabled),
+    );
   }, []);
 
   useFrame(() => {
     const s = useMapStore.getState();
-    updateBendUniforms(uniforms, bendParamsFromView(view.current.height, s.bend, s.bend.enabled));
+    const composition = {
+      userPointScreenFraction: s.userPointScreenFraction,
+      fovDeg: CAMERA_FOV_DEG,
+    };
+    updateBendUniforms(
+      uniforms,
+      bendParamsFromView(view.current.height, s.bend, composition, s.bend.enabled),
+    );
   });
 
   return uniforms;

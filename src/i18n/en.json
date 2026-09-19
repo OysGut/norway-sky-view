@@ -95,15 +95,17 @@
   "bend": {
     "title": "Bent World",
     "enabled": "Bend on/off",
+    "horizonScreenFraction": "Horizon on screen",
+    "horizonDistanceM": "Horizon distance",
     "flatFraction": "Flat zone",
-    "radiusFraction": "Radius",
-    "compressionFraction": "Compression",
+    "transitionFraction": "Transition",
+    "curveExponent": "Curve profile",
     "drama": "Drama",
     "userPointScreenFraction": "User point on screen",
     "backward": "Bend behind too",
     "flatM": "Flat zone",
     "radiusM": "Radius",
-    "horizon": "Horizon",
+    "compressionM": "Compression",
     "wireframe": "Show wireframe"
   }
 }

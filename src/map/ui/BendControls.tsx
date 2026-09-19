@@ -4,8 +4,8 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { formatMeters, formatNumber } from "@/i18n/format";
 import { useLanguage } from "@/i18n/useLanguage";
-import { bendParamsFromView, horizonDistance } from "@/map/engine/bendMath";
-import { WIREFRAME_LAYER } from "@/map/scenes/cameraModel";
+import { bendParamsFromView } from "@/map/engine/bendMath";
+import { CAMERA_FOV_DEG, WIREFRAME_LAYER } from "@/map/scenes/cameraModel";
 import { useMapStore, type BendSettings } from "@/map/store/mapStore";
 
 import { GlassPanel } from "./GlassPanel";
@@ -15,20 +15,48 @@ interface BendControlsProps {
   className?: string | undefined;
 }
 
-type NumericBendKey = "flatFraction" | "radiusFraction" | "compressionFraction" | "drama";
+type NumericBendKey =
+  | "horizonScreenFraction"
+  | "horizonDistanceM"
+  | "flatFraction"
+  | "transitionFraction"
+  | "curveExponent"
+  | "drama";
 
 interface SliderSpec {
   key: NumericBendKey;
   min: number;
   max: number;
   step: number;
+  /** How to print the value */
+  format: (v: number, language: "nb" | "en") => string;
 }
 
 const SLIDERS: readonly SliderSpec[] = [
-  { key: "flatFraction", min: 0.02, max: 0.6, step: 0.01 },
-  { key: "radiusFraction", min: 0.05, max: 1.2, step: 0.01 },
-  { key: "compressionFraction", min: 0.005, max: 0.5, step: 0.005 },
-  { key: "drama", min: 0, max: 1, step: 0.05 },
+  {
+    key: "horizonScreenFraction",
+    min: 0.3,
+    max: 1,
+    step: 0.01,
+    format: (v, l) => formatNumber(v, 2, l),
+  },
+  {
+    key: "horizonDistanceM",
+    min: 5_000,
+    max: 400_000,
+    step: 5_000,
+    format: (v, l) => `${formatNumber(v / 1000, 0, l)} km`,
+  },
+  { key: "flatFraction", min: 0, max: 0.8, step: 0.01, format: (v, l) => formatNumber(v, 2, l) },
+  {
+    key: "transitionFraction",
+    min: 0,
+    max: 0.8,
+    step: 0.01,
+    format: (v, l) => formatNumber(v, 2, l),
+  },
+  { key: "curveExponent", min: 0.4, max: 2.5, step: 0.05, format: (v, l) => formatNumber(v, 2, l) },
+  { key: "drama", min: 0, max: 1, step: 0.05, format: (v, l) => formatNumber(v, 2, l) },
 ];
 
 function ControlRow({
@@ -63,8 +91,12 @@ export function BendControls({ className }: BendControlsProps) {
   const wireframe = useMapStore((s) => s.layers[WIREFRAME_LAYER] === true);
   const setLayer = useMapStore((s) => s.setLayer);
 
-  const params = bendParamsFromView(cameraHeight, bend, bend.enabled);
-  const horizonKm = horizonDistance(params) / 1000;
+  const params = bendParamsFromView(
+    cameraHeight,
+    bend,
+    { userPointScreenFraction, fovDeg: CAMERA_FOV_DEG },
+    bend.enabled,
+  );
 
   const set = (key: keyof BendSettings, value: number) =>
     setBend({ [key]: value } as Partial<BendSettings>);
@@ -87,7 +119,7 @@ export function BendControls({ className }: BendControlsProps) {
           <ControlRow
             key={spec.key}
             label={t(`bend.${spec.key}`)}
-            value={formatNumber(bend[spec.key], spec.step < 0.01 ? 3 : 2, language)}
+            value={spec.format(bend[spec.key], language)}
           >
             <Slider
               min={spec.min}
@@ -107,7 +139,7 @@ export function BendControls({ className }: BendControlsProps) {
           value={formatNumber(userPointScreenFraction, 2, language)}
         >
           <Slider
-            min={0.1}
+            min={-0.6}
             max={0.5}
             step={0.01}
             value={[userPointScreenFraction]}
@@ -144,8 +176,8 @@ export function BendControls({ className }: BendControlsProps) {
             size="sm"
           />
           <Readout
-            label={t("bend.horizon")}
-            value={`${formatNumber(horizonKm, horizonKm < 10 ? 1 : 0, language)} km`}
+            label={t("bend.compressionM")}
+            value={formatMeters(params.compressionM, language)}
             size="sm"
           />
         </div>

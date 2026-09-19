@@ -16,10 +16,14 @@ export interface UserPoint {
 export interface BendSettings {
   /** Flat orthographic zone in front of the user (fraction of camera height). */
   flatFraction: number;
-  /** Cylinder radius (fraction of camera height). */
-  radiusFraction: number;
-  /** Logarithmic compression length L (fraction of camera height); smaller = more compression. */
-  compressionFraction: number;
+  /** Half-width of the transition from flat into compressed (fraction of camera height). */
+  transitionFraction: number;
+  /** Where the horizon line sits on screen (fraction of viewport height from the bottom); the radius is derived from it. */
+  horizonScreenFraction: number;
+  /** How far away the horizon line is, in metres of real terrain; the compression is derived from it. */
+  horizonDistanceM: number;
+  /** Bend profile: 1 = circular, < 1 rises early then eases, > 1 stays flat longer then rises steeply. */
+  curveExponent: number;
   /** Height scaling exponent in the compressed zone: 0 = dramatic, 1 = true scale. */
   drama: number;
   /** 0 = terrain behind the user stays flat. */
@@ -38,7 +42,7 @@ export interface MapState {
   followNow: boolean;
   mode: MapMode;
   bend: BendSettings;
-  /** Where the user point sits on screen, as a fraction of viewport height from the bottom. */
+  /** Where the user point sits on screen, as a fraction of viewport height from the bottom (negative = below the screen edge). */
   userPointScreenFraction: number;
   layers: Record<string, boolean>;
   setUserPoint: (userPoint: UserPoint) => void;
@@ -63,8 +67,10 @@ export const useMapStore = create<MapState>((set) => ({
   mode: "bent",
   bend: {
     flatFraction: 0.25,
-    radiusFraction: 0.3,
-    compressionFraction: 0.06,
+    transitionFraction: 0.15,
+    horizonScreenFraction: 0.8,
+    horizonDistanceM: 150_000,
+    curveExponent: 1,
     drama: 0.35,
     backwardWeight: 0,
     enabled: 1,

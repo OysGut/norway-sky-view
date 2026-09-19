@@ -28,7 +28,11 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
       aria-label={label}
       title={label}
     >
-      {isDark ? <IconSun aria-hidden="true" stroke={1.5} /> : <IconMoon aria-hidden="true" stroke={1.5} />}
+      {isDark ? (
+        <IconSun aria-hidden="true" stroke={1.5} />
+      ) : (
+        <IconMoon aria-hidden="true" stroke={1.5} />
+      )}
     </Button>
   );
 }

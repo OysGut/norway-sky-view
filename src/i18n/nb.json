@@ -95,15 +95,17 @@
   "bend": {
     "title": "Bøyd verden",
     "enabled": "Bøyning på/av",
+    "horizonScreenFraction": "Horisont på skjermen",
+    "horizonDistanceM": "Horisontavstand",
     "flatFraction": "Flat sone",
-    "radiusFraction": "Radius",
-    "compressionFraction": "Kompresjon",
+    "transitionFraction": "Overgang",
+    "curveExponent": "Kurveprofil",
     "drama": "Dramatikk",
     "userPointScreenFraction": "Ståsted på skjermen",
     "backward": "Bøy også bakover",
     "flatM": "Flat sone",
     "radiusM": "Radius",
-    "horizon": "Horisont",
+    "compressionM": "Kompresjon",
     "wireframe": "Vis rutenett (wireframe)"
   }
 }
