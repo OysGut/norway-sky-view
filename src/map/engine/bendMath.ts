@@ -42,6 +42,21 @@ export interface BendParams {
   backwardWeight: number;
   /** 0 = classic 3D (no bend), 1 = full Bent World. */
   enabled: number;
+  /**
+   * Physical earth curvature applied in unbent space before the artistic bend:
+   * y -= (x² + z²) · earthCurvature, with earthCurvature = 1 / (2 R_eff). 0 disables.
+   */
+  earthCurvature: number;
+}
+
+/** Earth radius with standard atmospheric refraction (k = 0.13): R / (1 − k). */
+export const EFFECTIVE_EARTH_RADIUS_M = 6_371_000 / (1 - 0.13);
+/** 1 / (2 R_eff): drop per metre² of horizontal distance. */
+export const EARTH_CURVATURE = 1 / (2 * EFFECTIVE_EARTH_RADIUS_M);
+
+/** Drop of the earth's surface below the tangent plane at horizontal distance d (metres). */
+export function curvatureDrop(distanceM: number, curvature: number = EARTH_CURVATURE): number {
+  return distanceM * distanceM * curvature;
 }
 
 export interface BendFractions {
@@ -54,6 +69,8 @@ export interface BendFractions {
   curveExponent: number;
   drama: number;
   backwardWeight: number;
+  /** Apply physical earth curvature (true) or keep the unbent world flat (false). */
+  physicalCurvature: boolean;
 }
 
 /** Camera composition needed to derive the radius from the horizon position. */
@@ -145,6 +162,7 @@ export function bendParamsFromView(
     thetaMax: DEFAULT_THETA_MAX,
     backwardWeight: fractions.backwardWeight,
     enabled,
+    earthCurvature: fractions.physicalCurvature ? EARTH_CURVATURE : 0,
   };
 }
 
@@ -223,6 +241,9 @@ export interface BentPoint {
 
 /** Bend a world-space point. Pure; allocates one small object. */
 export function bendPoint(x: number, y: number, z: number, p: BendParams): BentPoint {
+  // physical curvature: the world falls away from the viewer's tangent plane
+  if (p.earthCurvature > 0) y -= (x * x + z * z) * p.earthCurvature;
+
   const sign = z < 0 ? 1 : z > 0 ? -1 : 0; // +1 = in front of the user
   const weight = (sign >= 0 ? 1 : p.backwardWeight) * p.enabled;
   if (weight <= 0 || sign === 0) return { x, y, z, theta: 0 };

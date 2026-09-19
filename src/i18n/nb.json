@@ -88,6 +88,7 @@
   },
   "hud": {
     "position": "Posisjon",
+    "ground": "Terreng",
     "heading": "Retning",
     "height": "Kamerahøyde",
     "keys": "WASD flytt · Q/E roter · hjul høyde"
@@ -106,6 +107,8 @@
     "flatM": "Flat sone",
     "radiusM": "Radius",
     "compressionM": "Kompresjon",
+    "curvature": "Jordkrumning (fysisk)",
+    "synthetic": "Syntetisk terreng (test)",
     "wireframe": "Vis rutenett (wireframe)"
   }
 }

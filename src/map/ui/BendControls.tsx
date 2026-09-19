@@ -5,7 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { formatMeters, formatNumber } from "@/i18n/format";
 import { useLanguage } from "@/i18n/useLanguage";
 import { bendParamsFromView } from "@/map/engine/bendMath";
-import { CAMERA_FOV_DEG, WIREFRAME_LAYER } from "@/map/scenes/cameraModel";
+import { CAMERA_FOV_DEG, SYNTHETIC_LAYER, WIREFRAME_LAYER } from "@/map/scenes/cameraModel";
 import { useMapStore, type BendSettings } from "@/map/store/mapStore";
 
 import { GlassPanel } from "./GlassPanel";
@@ -89,6 +89,7 @@ export function BendControls({ className }: BendControlsProps) {
   const setBend = useMapStore((s) => s.setBend);
   const setUserPointScreenFraction = useMapStore((s) => s.setUserPointScreenFraction);
   const wireframe = useMapStore((s) => s.layers[WIREFRAME_LAYER] === true);
+  const synthetic = useMapStore((s) => s.layers[SYNTHETIC_LAYER] === true);
   const setLayer = useMapStore((s) => s.setLayer);
 
   const params = bendParamsFromView(
@@ -156,6 +157,24 @@ export function BendControls({ className }: BendControlsProps) {
             checked={bend.backwardWeight >= 0.5}
             onCheckedChange={(checked) => set("backwardWeight", checked ? 1 : 0)}
             aria-label={t("bend.backward")}
+          />
+        </label>
+
+        <label className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{t("bend.curvature")}</span>
+          <Switch
+            checked={bend.physicalCurvature}
+            onCheckedChange={(checked) => setBend({ physicalCurvature: checked })}
+            aria-label={t("bend.curvature")}
+          />
+        </label>
+
+        <label className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{t("bend.synthetic")}</span>
+          <Switch
+            checked={synthetic}
+            onCheckedChange={(checked) => setLayer(SYNTHETIC_LAYER, checked)}
+            aria-label={t("bend.synthetic")}
           />
         </label>
 

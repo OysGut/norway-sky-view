@@ -6,6 +6,8 @@ import {
   bendParamsFromView,
   bendPoint,
   compressedDepth,
+  curvatureDrop,
+  EARTH_CURVATURE,
   compressionForHorizon,
   horizonDistance,
   remapDerivative,
@@ -31,6 +33,7 @@ const P: BendParams = {
   thetaMax: Math.PI * 0.95,
   backwardWeight: 0,
   enabled: 1,
+  earthCurvature: 0,
 };
 
 const FRACTIONS: BendFractions = {
@@ -41,6 +44,7 @@ const FRACTIONS: BendFractions = {
   curveExponent: 1,
   drama: 0.35,
   backwardWeight: 0,
+  physicalCurvature: false,
 };
 const VIEW: ViewComposition = { userPointScreenFraction: 0.3, fovDeg: 50 };
 
@@ -241,6 +245,28 @@ describe("bendPoint", () => {
     const half = bendPoint(0, 0, -20_000, { ...P, enabled: 0.5 });
     expect(half.y).toBeCloseTo(full.y / 2, 9);
     expect(half.z).toBeCloseTo((-20_000 + full.z) / 2, 9);
+  });
+});
+
+describe("earth curvature", () => {
+  it("drops by d²/2R with refraction-corrected radius", () => {
+    expect(curvatureDrop(32_000)).toBeCloseTo(70, 0); // ≈ 70 m at 32 km (78 m without refraction)
+    expect(curvatureDrop(100_000)).toBeCloseTo(683, 0);
+    expect(curvatureDrop(150_000)).toBeCloseTo(1536, 0);
+  });
+
+  it("is applied before the bend and also behind the user and when the bend is off", () => {
+    const q = { ...P, earthCurvature: EARTH_CURVATURE, enabled: 0 };
+    const behind = bendPoint(0, 0, 100_000, q);
+    expect(behind.y).toBeCloseTo(-curvatureDrop(100_000), 6);
+    const side = bendPoint(100_000, 0, 0, q);
+    expect(side.y).toBeCloseTo(-curvatureDrop(100_000), 6);
+    // in front with the bend on: the drop is part of the height fed into the cylinder
+    const on = { ...P, earthCurvature: EARTH_CURVATURE };
+    const withDrop = bendPoint(0, 0, -50_000, on);
+    const without = bendPoint(0, -curvatureDrop(50_000), -50_000, P);
+    expect(withDrop.y).toBeCloseTo(without.y, 6);
+    expect(withDrop.z).toBeCloseTo(without.z, 6);
   });
 });
 

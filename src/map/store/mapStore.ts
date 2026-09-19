@@ -28,6 +28,8 @@ export interface BendSettings {
   drama: number;
   /** 0 = terrain behind the user stays flat. */
   backwardWeight: number;
+  /** Physical earth curvature (refraction-corrected) in the unbent world. */
+  physicalCurvature: boolean;
   /** 1 = Bent World, 0 = classic 3D; animated during mode transitions. */
   enabled: number;
   /** Reserved for the future second bend axis; (1, 0) today. */
@@ -37,7 +39,10 @@ export interface BendSettings {
 export interface MapState {
   userPoint: UserPoint;
   heading: number;
+  /** Camera height above the ground at the user point, metres. */
   cameraHeight: number;
+  /** Terrain height at the user point, metres above sea level (sampled by the terrain layer). */
+  groundHeight: number;
   time: Date;
   followNow: boolean;
   mode: MapMode;
@@ -48,6 +53,7 @@ export interface MapState {
   setUserPoint: (userPoint: UserPoint) => void;
   setHeading: (heading: number) => void;
   setCameraHeight: (cameraHeight: number) => void;
+  setGroundHeight: (groundHeight: number) => void;
   setTime: (time: Date) => void;
   setFollowNow: (followNow: boolean) => void;
   setMode: (mode: MapMode) => void;
@@ -62,6 +68,7 @@ export const useMapStore = create<MapState>((set) => ({
   userPoint: { lat: 61.6364, lon: 8.3125 },
   heading: 0,
   cameraHeight: 1200,
+  groundHeight: 0,
   time: new Date(),
   followNow: true,
   mode: "bent",
@@ -73,6 +80,7 @@ export const useMapStore = create<MapState>((set) => ({
     curveExponent: 1,
     drama: 0.35,
     backwardWeight: 0,
+    physicalCurvature: true,
     enabled: 1,
     axisWeight: [1, 0],
   },
@@ -81,6 +89,7 @@ export const useMapStore = create<MapState>((set) => ({
   setUserPoint: (userPoint) => set({ userPoint }),
   setHeading: (heading) => set({ heading }),
   setCameraHeight: (cameraHeight) => set({ cameraHeight }),
+  setGroundHeight: (groundHeight) => set({ groundHeight }),
   setTime: (time) => set({ time }),
   setFollowNow: (followNow) => set({ followNow }),
   setMode: (mode) => set({ mode }),

@@ -1,4 +1,5 @@
 // LOCKED: engine code — modify only on explicit engine tasks.
-// Future purpose: level-of-detail selection and tiling for terrain meshes.
-
-export {};
+// Terrain level-of-detail: ring planning, meshing and the height-tile cache.
+export * from "./mesher";
+export * from "./rings";
+export * from "./tileCache";

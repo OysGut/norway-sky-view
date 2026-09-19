@@ -17,6 +17,7 @@ export const BEND_UNIFORM_NAMES = [
   "uBendThetaMax",
   "uBendBackward",
   "uBendEnabled",
+  "uEarthCurvature",
 ] as const;
 
 export type BendUniformName = (typeof BEND_UNIFORM_NAMES)[number];
@@ -34,6 +35,7 @@ export function createBendUniforms(p: BendParams): BendUniforms {
     uBendThetaMax: { value: p.thetaMax },
     uBendBackward: { value: p.backwardWeight },
     uBendEnabled: { value: p.enabled },
+    uEarthCurvature: { value: p.earthCurvature },
   };
 }
 
@@ -48,6 +50,7 @@ export function updateBendUniforms(u: BendUniforms, p: BendParams): void {
   u.uBendThetaMax.value = p.thetaMax;
   u.uBendBackward.value = p.backwardWeight;
   u.uBendEnabled.value = p.enabled;
+  u.uEarthCurvature.value = p.earthCurvature;
 }
 
 /** Uniform declarations + bend functions. Prepend to a vertex shader before main(). */
@@ -61,6 +64,7 @@ uniform float uBendDrama;
 uniform float uBendThetaMax;
 uniform float uBendBackward;
 uniform float uBendEnabled;
+uniform float uEarthCurvature;
 
 // Smooth max(v, 0) with a quadratic knee of half-width w. C1.
 float bendSoftKnee(float v, float w) {
@@ -92,9 +96,16 @@ float bendAngle(float a) {
 }
 
 // Bend a WORLD-space point. Forward is -z; the user stands at the origin.
-vec3 bendWorld(vec3 p) {
+// Also outputs the cylinder angle actually used (weighted) and the forward sign,
+// so callers can rotate normals consistently.
+vec3 bendWorldTheta(vec3 p, out float thetaOut, out float sgnOut) {
+  // physical curvature: the world falls away from the viewer's tangent plane
+  p.y -= (p.x * p.x + p.z * p.z) * uEarthCurvature;
+
   float sgn = p.z < 0.0 ? 1.0 : (p.z > 0.0 ? -1.0 : 0.0);
   float weight = (sgn >= 0.0 ? 1.0 : uBendBackward) * uBendEnabled;
+  thetaOut = 0.0;
+  sgnOut = sgn;
   if (weight <= 0.0 || sgn == 0.0) return p;
 
   float d = abs(p.z);
@@ -110,6 +121,22 @@ vec3 bendWorld(vec3 p) {
   float rr = uBendRadius + yEff;
 
   vec3 bent = vec3(p.x, rr * cos(theta) - uBendRadius, -(base + rr * sin(theta)) * sgn);
+  thetaOut = theta * weight;
   return mix(p, bent, weight);
+}
+
+vec3 bendWorld(vec3 p) {
+  float t;
+  float s;
+  return bendWorldTheta(p, t, s);
+}
+
+// Rotate a world-space normal to follow the bend: the local frame turns by theta
+// around the x axis (mirrored for points behind the user).
+vec3 bendNormal(vec3 n, float theta, float sgn) {
+  float phi = -theta * sgn;
+  float c = cos(phi);
+  float s = sin(phi);
+  return vec3(n.x, n.y * c - n.z * s, n.y * s + n.z * c);
 }
 `;

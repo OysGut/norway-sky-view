@@ -14,3 +14,6 @@ export function lookAheadMeters(cameraHeightM: number, userPointScreenFraction: 
 
 /** mapStore.layers key that switches every terrain material to wireframe (debug/tuning). */
 export const WIREFRAME_LAYER = "debug:wireframe";
+
+/** mapStore.layers key that replaces fetched heights with procedural hills (offline testing). */
+export const SYNTHETIC_LAYER = "debug:synthetic";
