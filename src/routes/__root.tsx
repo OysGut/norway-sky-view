@@ -79,6 +79,13 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  beforeLoad: () => {
+    const language = resolveLanguage();
+    if (i18n.language !== language) {
+      void i18n.changeLanguage(language);
+    }
+    return { language };
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -110,7 +117,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="nb" suppressHydrationWarning>
+    <html lang={activeLanguage()} suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
