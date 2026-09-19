@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      proxy_cache: {
+        Row: {
+          body: string
+          cache_key: string
+          content_type: string
+          expires_at: string
+          last_modified: string | null
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          cache_key: string
+          content_type: string
+          expires_at: string
+          last_modified?: string | null
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          cache_key?: string
+          content_type?: string
+          expires_at?: string
+          last_modified?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       usage_events: {
         Row: {
           created_at: string
