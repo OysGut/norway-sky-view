@@ -65,5 +65,25 @@
       "light": "Bytt til lyst tema",
       "dark": "Bytt til mørkt tema"
     }
+  },
+  "common": {
+    "language": {
+      "label": "Velg språk",
+      "nb": "Bokmål",
+      "en": "Engelsk"
+    }
+  },
+  "errors": {
+    "notFound": {
+      "title": "Fant ikke siden",
+      "body": "Siden du leter etter finnes ikke, eller den er flyttet.",
+      "home": "Til forsiden"
+    },
+    "failed": {
+      "title": "Denne siden lastet ikke",
+      "body": "Noe gikk galt hos oss. Du kan prøve på nytt eller gå til forsiden.",
+      "retry": "Prøv igjen",
+      "home": "Til forsiden"
+    }
   }
 }

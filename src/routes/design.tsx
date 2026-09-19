@@ -13,7 +13,10 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { formatLatitude, formatMeters, formatTime } from "@/i18n/format";
+import { useLanguage } from "@/i18n/useLanguage";
 import { GlassPanel } from "@/map/ui/GlassPanel";
+import { LanguageSwitch } from "@/map/ui/LanguageSwitch";
 import { Readout } from "@/map/ui/Readout";
 import { ThemeToggle } from "@/map/ui/ThemeToggle";
 
@@ -68,10 +71,17 @@ function SectionHeading({ children }: { children: string }) {
 
 function DesignPage() {
   const { t } = useTranslation();
+  const { language } = useLanguage();
+  const elevation = formatMeters(2469, language);
+  const latitude = formatLatitude(61.6364, language);
+  const localTime = formatTime(new Date(2026, 8, 19, 14, 32), language);
 
   return (
     <main className="min-h-screen bg-background px-8 py-14 text-foreground transition-colors duration-[var(--motion-duration)] ease-[var(--motion-ease)] lg:px-16">
-      <ThemeToggle className="fixed right-6 top-6 z-50" />
+      <GlassPanel className="fixed right-6 top-6 z-50 flex items-center gap-2" padding="sm">
+        <LanguageSwitch />
+        <ThemeToggle />
+      </GlassPanel>
 
       <header className="mx-auto mb-16 max-w-7xl border-b border-border pb-10">
         <p className="text-xs font-medium uppercase tracking-[0.16em] text-accent">{t("design.intro")}</p>
@@ -109,9 +119,9 @@ function DesignPage() {
               </div>
             </div>
             <div className="grid content-start gap-8 border-l border-border pl-8">
-              <Readout label={t("design.readouts.elevation")} value="2 469 m" size="lg" />
-              <Readout label={t("design.readouts.latitude")} value="61,6364° N" size="md" />
-              <Readout label={t("design.readouts.localTime")} value="14:32" size="sm" />
+              <Readout label={t("design.readouts.elevation")} value={elevation} size="lg" />
+              <Readout label={t("design.readouts.latitude")} value={latitude} size="md" />
+              <Readout label={t("design.readouts.localTime")} value={localTime} size="sm" />
             </div>
           </div>
         </section>
@@ -128,7 +138,7 @@ function DesignPage() {
               <h3 className="text-xl font-medium text-foreground">{t("design.glass.title")}</h3>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("design.glass.description")}</p>
               <div className="mt-8">
-                <Readout label={t("design.readouts.elevation")} value="2 469 m" size="lg" />
+                <Readout label={t("design.readouts.elevation")} value={elevation} size="lg" />
               </div>
             </GlassPanel>
           </div>

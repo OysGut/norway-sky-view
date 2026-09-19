@@ -65,5 +65,25 @@
       "light": "Switch to light theme",
       "dark": "Switch to dark theme"
     }
+  },
+  "common": {
+    "language": {
+      "label": "Choose language",
+      "nb": "Norwegian Bokmål",
+      "en": "English"
+    }
+  },
+  "errors": {
+    "notFound": {
+      "title": "Page not found",
+      "body": "The page you are looking for does not exist or has been moved.",
+      "home": "Go home"
+    },
+    "failed": {
+      "title": "This page didn't load",
+      "body": "Something went wrong on our end. You can try again or go back home.",
+      "retry": "Try again",
+      "home": "Go home"
+    }
   }
 }
