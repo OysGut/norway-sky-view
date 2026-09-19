@@ -54,6 +54,8 @@
 
 :root {
   --radius: 0.75rem;
+  --motion-duration: 200ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
 
   /* #0A0E17 */
   --background: oklch(0.174 0.021 264.3);
@@ -96,6 +98,12 @@
   --glass-border: oklch(1 0 0 / 12%);
   --glass-blur: 18px;
   --glass-shadow: 0 8px 32px oklch(0 0 0 / 45%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration: 0ms;
+  }
 }
 
 /* "map paper" light variant — prepared, not switchable yet */

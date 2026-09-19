@@ -1,4 +1,69 @@
 {
   "appName": "Himinrond",
-  "tagline": "the sky's rim"
+  "tagline": "the sky's rim",
+  "design": {
+    "wordmark": "Himinrond",
+    "title": "Design system",
+    "intro": "Visual reference for Himinrond",
+    "sections": {
+      "colours": "Colours",
+      "type": "Typography",
+      "glass": "Glass",
+      "controls": "Controls",
+      "icons": "Icons"
+    },
+    "colours": {
+      "background": "Background",
+      "foreground": "Foreground",
+      "mutedForeground": "Muted foreground",
+      "card": "Card",
+      "accent": "Accent",
+      "accent2": "Secondary accent",
+      "success": "Success",
+      "warning": "Warning",
+      "danger": "Danger",
+      "info": "Information",
+      "border": "Border",
+      "glass": "Glass"
+    },
+    "type": {
+      "h1": "Heading level one",
+      "h2": "Heading level two",
+      "h3": "Heading level three",
+      "body": "Calm, precise text for maps, places and journeys through Norway.",
+      "small": "Smaller text for details, sources and map information."
+    },
+    "readouts": {
+      "elevation": "Elevation",
+      "latitude": "Latitude",
+      "localTime": "Local time"
+    },
+    "glass": {
+      "title": "View towards Jotunheimen",
+      "description": "A light glass layer keeps information legible without hiding the landscape."
+    },
+    "controls": {
+      "default": "Default",
+      "secondary": "Secondary",
+      "ghost": "Ghost",
+      "outline": "Outline",
+      "destructive": "Delete",
+      "range": "Range",
+      "liveLayers": "Live layers",
+      "status": {
+        "ok": "Ok",
+        "warning": "Warning",
+        "danger": "Danger",
+        "info": "Info"
+      }
+    },
+    "icons": {
+      "domain": "Map and nature",
+      "chrome": "Interface"
+    },
+    "theme": {
+      "light": "Switch to light theme",
+      "dark": "Switch to dark theme"
+    }
+  }
 }
