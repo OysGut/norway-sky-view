@@ -2,6 +2,7 @@
   "appName": "Himinrond",
   "tagline": "himmelens rand",
   "design": {
+    "wordmark": "Himinrond",
     "title": "Designsystem",
     "intro": "Visuell referanse for Himinrond",
     "sections": {

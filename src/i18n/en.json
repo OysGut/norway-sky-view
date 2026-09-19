@@ -2,6 +2,7 @@
   "appName": "Himinrond",
   "tagline": "the sky's rim",
   "design": {
+    "wordmark": "Himinrond",
     "title": "Design system",
     "intro": "Visual reference for Himinrond",
     "sections": {

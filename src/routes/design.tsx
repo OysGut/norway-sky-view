@@ -99,7 +99,7 @@ function DesignPage() {
           <SectionHeading>{t("design.sections.type")}</SectionHeading>
           <div className="grid gap-12 lg:grid-cols-[1.25fr_1fr]">
             <div>
-              <p className="font-serif text-[72px] italic leading-none text-foreground">{t("appName")}</p>
+              <p className="font-serif text-[72px] italic leading-none text-foreground">{t("design.wordmark")}</p>
               <div className="mt-12 space-y-5">
                 <h1 className="text-4xl font-medium text-foreground">{t("design.type.h1")}</h1>
                 <h2 className="text-3xl font-medium text-foreground">{t("design.type.h2")}</h2>
