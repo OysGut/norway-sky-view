@@ -22,6 +22,8 @@ export function useLanguage(): {
       void instance.changeLanguage(resolved);
     }
     document.documentElement.lang = resolved;
+    // Persist so the next server render starts in the same language.
+    persistLanguage(resolved);
   }, [instance]);
 
   useEffect(() => {
