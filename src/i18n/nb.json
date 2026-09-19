@@ -1,4 +1,68 @@
 {
   "appName": "Himinrond",
-  "tagline": "himmelens rand"
+  "tagline": "himmelens rand",
+  "design": {
+    "title": "Designsystem",
+    "intro": "Visuell referanse for Himinrond",
+    "sections": {
+      "colours": "Farger",
+      "type": "Typografi",
+      "glass": "Glass",
+      "controls": "Kontroller",
+      "icons": "Ikoner"
+    },
+    "colours": {
+      "background": "Bakgrunn",
+      "foreground": "Forgrunn",
+      "mutedForeground": "Dempet forgrunn",
+      "card": "Kort",
+      "accent": "Aksent",
+      "accent2": "Sekundær aksent",
+      "success": "Ok",
+      "warning": "Advarsel",
+      "danger": "Fare",
+      "info": "Informasjon",
+      "border": "Kantlinje",
+      "glass": "Glass"
+    },
+    "type": {
+      "h1": "Overskrift nivå én",
+      "h2": "Overskrift nivå to",
+      "h3": "Overskrift nivå tre",
+      "body": "Rolig, presis tekst for kart, steder og reiser gjennom Norge.",
+      "small": "Mindre tekst for detaljer, kilder og kartinformasjon."
+    },
+    "readouts": {
+      "elevation": "Høyde",
+      "latitude": "Breddegrad",
+      "localTime": "Lokal tid"
+    },
+    "glass": {
+      "title": "Utsikt mot Jotunheimen",
+      "description": "Et lett glasslag holder informasjonen lesbar uten å skjule landskapet."
+    },
+    "controls": {
+      "default": "Standard",
+      "secondary": "Sekundær",
+      "ghost": "Diskré",
+      "outline": "Omriss",
+      "destructive": "Slett",
+      "range": "Rekkevidde",
+      "liveLayers": "Live-lag",
+      "status": {
+        "ok": "Ok",
+        "warning": "Advarsel",
+        "danger": "Fare",
+        "info": "Info"
+      }
+    },
+    "icons": {
+      "domain": "Kart og natur",
+      "chrome": "Grensesnitt"
+    },
+    "theme": {
+      "light": "Bytt til lyst tema",
+      "dark": "Bytt til mørkt tema"
+    }
+  }
 }
