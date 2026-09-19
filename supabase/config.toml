@@ -1,1 +1,4 @@
 project_id = "oabgvgssfukunteljhpe"
+
+[functions.proxy-fetch]
+verify_jwt = false

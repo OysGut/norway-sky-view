@@ -12,6 +12,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { fetchLocationForecast } from "@/map/data/met";
+import { fetchAuroraNorth } from "@/map/data/noaa";
 
 export const Route = createFileRoute("/spike/data")({
   head: () => ({
@@ -118,10 +120,66 @@ interface SourceResult {
   canvas: CanvasResult | null;
 }
 
+interface ProxyResultRow {
+  id: string;
+  ok: boolean;
+  elapsedMs: number;
+  bytes?: number;
+  cache?: string | null;
+  detail?: string;
+  errorMessage?: string;
+}
+
 interface SpikeReport {
   userAgent: string;
   timestamp: string;
   results: SourceResult[];
+  proxy: ProxyResultRow[];
+}
+
+async function runProxyProbes(): Promise<ProxyResultRow[]> {
+  const probes: Array<{ id: string; run: () => Promise<{ bytes: number; cache: string | null; detail: string }> }> = [
+    {
+      id: "met-via-proxy",
+      run: async () => {
+        const r = await fetchLocationForecast(61.6364, 8.3125);
+        const first = r.data.series[0];
+        return {
+          bytes: r.bytes,
+          cache: r.cache,
+          detail: `altitude ${r.data.altitude ?? "?"} m · first air temp ${first?.airTemperature ?? "?"} °C · ${r.data.series.length} steps`,
+        };
+      },
+    },
+    {
+      id: "noaa-via-proxy",
+      run: async () => {
+        const r = await fetchAuroraNorth();
+        return {
+          bytes: r.bytes,
+          cache: r.cache,
+          detail: `${r.data.points.length} points ≥ 45° N · forecast ${r.data.forecastTime}`,
+        };
+      },
+    },
+  ];
+
+  return Promise.all(
+    probes.map(async (probe): Promise<ProxyResultRow> => {
+      const started = performance.now();
+      try {
+        const out = await probe.run();
+        return { id: probe.id, ok: true, elapsedMs: Math.round(performance.now() - started), ...out };
+      } catch (error) {
+        return {
+          id: probe.id,
+          ok: false,
+          elapsedMs: Math.round(performance.now() - started),
+          errorMessage: errorMessage(error),
+        };
+      }
+    }),
+  );
 }
 
 function errorName(error: unknown): string {
@@ -305,11 +363,15 @@ function SpikeDataPage() {
   const run = useCallback(async () => {
     setRunning(true);
     setCopied(false);
-    const results = await Promise.all(SOURCES.map((source) => runSource(source)));
+    const [results, proxy] = await Promise.all([
+      Promise.all(SOURCES.map((source) => runSource(source))),
+      runProxyProbes(),
+    ]);
     setReport({
       userAgent: navigator.userAgent,
       timestamp: new Date().toISOString(),
       results,
+      proxy,
     });
     setRunning(false);
   }, []);
@@ -403,6 +465,48 @@ function SpikeDataPage() {
                       ) : (
                         <span className="text-xs text-muted-foreground">{result ? "n/a" : "…"}</span>
                       )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+
+        <h2 className="mt-10 text-xl font-medium">Via proxy-fetch</h2>
+        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+          Same upstreams through the edge function: identifying User-Agent, server-side cache
+          (X-Proxy-Cache), NOAA slimmed to ≥ 45° N, one usage_events row per call.
+        </p>
+        <div className="mt-4 rounded-md border border-border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Probe</TableHead>
+                <TableHead>Result</TableHead>
+                <TableHead>Cache</TableHead>
+                <TableHead>Size · time</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(report?.proxy ?? [{ id: "met-via-proxy" }, { id: "noaa-via-proxy" }]).map((row) => {
+                const full = "ok" in row ? (row as ProxyResultRow) : null;
+                return (
+                  <TableRow key={row.id}>
+                    <TableCell className="align-top font-medium">{row.id}</TableCell>
+                    <TableCell className="align-top">
+                      {full ? (
+                        <>
+                          <StatusBadge ok={full.ok} />
+                          <Detail>{full.ok ? (full.detail ?? "") : (full.errorMessage ?? "failed")}</Detail>
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">…</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="tabular align-top text-xs">{full?.cache ?? (full ? "—" : "…")}</TableCell>
+                    <TableCell className="tabular align-top text-xs">
+                      {full ? `${Math.round((full.bytes ?? 0) / 1024)} kB · ${full.elapsedMs} ms` : "…"}
                     </TableCell>
                   </TableRow>
                 );

@@ -1,0 +1,117 @@
+// Keyboard + wheel navigation for the Bent World scene.
+// WASD moves the user point (camera-relative), Q/E rotate heading, wheel changes
+// camera height. Writes only through mapStore setters; the scene reads the store.
+
+import { useEffect, useRef } from "react";
+
+import { enuToLonLat } from "@/map/engine/projection";
+import { useMapStore } from "@/map/store/mapStore";
+
+export const CAMERA_HEIGHT_MIN = 200;
+export const CAMERA_HEIGHT_MAX = 20_000;
+const ROTATE_DEG_PER_SECOND = 60;
+
+const NAV_KEYS = new Set([
+  "w",
+  "a",
+  "s",
+  "d",
+  "q",
+  "e",
+  "arrowup",
+  "arrowdown",
+  "arrowleft",
+  "arrowright",
+]);
+
+export interface KeyboardNavigation {
+  /** Call once per frame with the frame delta in seconds. */
+  step: (dt: number) => void;
+}
+
+export function useKeyboardNavigation(
+  target: React.RefObject<HTMLElement | null>,
+): KeyboardNavigation {
+  const pressed = useRef(new Set<string>());
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if (!NAV_KEYS.has(key)) return;
+      const active = document.activeElement;
+      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+      pressed.current.add(key);
+      event.preventDefault();
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      pressed.current.delete(event.key.toLowerCase());
+    };
+    const onBlur = () => pressed.current.clear();
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
+  useEffect(() => {
+    const element = target.current;
+    if (!element) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const { cameraHeight, setCameraHeight } = useMapStore.getState();
+      const factor = event.deltaY > 0 ? 1.1 : 0.9;
+      const next = Math.min(CAMERA_HEIGHT_MAX, Math.max(CAMERA_HEIGHT_MIN, cameraHeight * factor));
+      setCameraHeight(next);
+    };
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
+  }, [target]);
+
+  const step = (dt: number) => {
+    const keys = pressed.current;
+    if (keys.size === 0) return;
+    const state = useMapStore.getState();
+
+    // Rotation
+    let turn = 0;
+    if (keys.has("q") || keys.has("arrowleft")) turn -= 1;
+    if (keys.has("e") || keys.has("arrowright")) turn += 1;
+    if (turn !== 0) {
+      let heading = state.heading + turn * ROTATE_DEG_PER_SECOND * dt;
+      heading = ((heading % 360) + 360) % 360;
+      state.setHeading(heading);
+    }
+
+    // Translation, camera-relative (forward = direction of heading)
+    let forward = 0;
+    let strafe = 0;
+    if (keys.has("w") || keys.has("arrowup")) forward += 1;
+    if (keys.has("s") || keys.has("arrowdown")) forward -= 1;
+    if (keys.has("d")) strafe += 1;
+    if (keys.has("a")) strafe -= 1;
+    if (forward === 0 && strafe === 0) return;
+
+    const speed = state.cameraHeight * 0.5; // m/s
+    const length = Math.hypot(forward, strafe) || 1;
+    const distance = (speed * dt) / length;
+    const headingRad = (state.heading * Math.PI) / 180;
+    // heading 0 = north; heading 90 = east. Forward vector in ENU:
+    const fEast = Math.sin(headingRad);
+    const fNorth = Math.cos(headingRad);
+    // right-hand strafe vector (heading + 90°)
+    const rEast = Math.cos(headingRad);
+    const rNorth = -Math.sin(headingRad);
+
+    const east = (fEast * forward + rEast * strafe) * distance;
+    const north = (fNorth * forward + rNorth * strafe) * distance;
+    const next = enuToLonLat(state.userPoint, { east, north });
+    state.setUserPoint({ lat: next.lat, lon: next.lon });
+  };
+
+  return { step };
+}

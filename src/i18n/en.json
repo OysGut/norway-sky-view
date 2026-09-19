@@ -85,5 +85,11 @@
       "retry": "Try again",
       "home": "Go home"
     }
+  },
+  "hud": {
+    "position": "Position",
+    "heading": "Heading",
+    "height": "Camera height",
+    "keys": "WASD move · Q/E rotate · wheel height"
   }
 }

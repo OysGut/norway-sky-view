@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DesignRouteImport } from './routes/design'
 import { Route as SpikeDataRouteImport } from './routes/spike/data'
+import { Route as SpikeElevationRouteImport } from './routes/spike/elevation'
+import { Route as SpikeSceneRouteImport } from './routes/spike/scene'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +30,60 @@ const SpikeDataRoute = SpikeDataRouteImport.update({
   path: '/spike/data',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SpikeElevationRoute = SpikeElevationRouteImport.update({
+  id: '/spike/elevation',
+  path: '/spike/elevation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SpikeSceneRoute = SpikeSceneRouteImport.update({
+  id: '/spike/scene',
+  path: '/spike/scene',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/design': typeof DesignRoute
   '/spike/data': typeof SpikeDataRoute
+  '/spike/elevation': typeof SpikeElevationRoute
+  '/spike/scene': typeof SpikeSceneRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/design': typeof DesignRoute
   '/spike/data': typeof SpikeDataRoute
+  '/spike/elevation': typeof SpikeElevationRoute
+  '/spike/scene': typeof SpikeSceneRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/design': typeof DesignRoute
   '/spike/data': typeof SpikeDataRoute
+  '/spike/elevation': typeof SpikeElevationRoute
+  '/spike/scene': typeof SpikeSceneRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/design' | '/spike/data'
+  fullPaths:
+    '/' | '/design' | '/spike/data' | '/spike/elevation' | '/spike/scene'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/design' | '/spike/data'
-  id: '__root__' | '/' | '/design' | '/spike/data'
+  to: '/' | '/design' | '/spike/data' | '/spike/elevation' | '/spike/scene'
+  id:
+    | '__root__'
+    | '/'
+    | '/design'
+    | '/spike/data'
+    | '/spike/elevation'
+    | '/spike/scene'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DesignRoute: typeof DesignRoute
   SpikeDataRoute: typeof SpikeDataRoute
+  SpikeElevationRoute: typeof SpikeElevationRoute
+  SpikeSceneRoute: typeof SpikeSceneRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +109,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SpikeDataRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/spike/elevation': {
+      id: '/spike/elevation'
+      path: '/spike/elevation'
+      fullPath: '/spike/elevation'
+      preLoaderRoute: typeof SpikeElevationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/spike/scene': {
+      id: '/spike/scene'
+      path: '/spike/scene'
+      fullPath: '/spike/scene'
+      preLoaderRoute: typeof SpikeSceneRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +130,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DesignRoute: DesignRoute,
   SpikeDataRoute: SpikeDataRoute,
+  SpikeElevationRoute: SpikeElevationRoute,
+  SpikeSceneRoute: SpikeSceneRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

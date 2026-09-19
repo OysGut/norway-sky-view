@@ -85,5 +85,11 @@
       "retry": "Prøv igjen",
       "home": "Til forsiden"
     }
+  },
+  "hud": {
+    "position": "Posisjon",
+    "heading": "Retning",
+    "height": "Kamerahøyde",
+    "keys": "WASD flytt · Q/E roter · hjul høyde"
   }
 }
