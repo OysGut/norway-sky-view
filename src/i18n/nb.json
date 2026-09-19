@@ -91,5 +91,19 @@
     "heading": "Retning",
     "height": "Kamerahøyde",
     "keys": "WASD flytt · Q/E roter · hjul høyde"
+  },
+  "bend": {
+    "title": "Bøyd verden",
+    "enabled": "Bøyning på/av",
+    "flatFraction": "Flat sone",
+    "radiusFraction": "Radius",
+    "compressionFraction": "Kompresjon",
+    "drama": "Dramatikk",
+    "userPointScreenFraction": "Ståsted på skjermen",
+    "backward": "Bøy også bakover",
+    "flatM": "Flat sone",
+    "radiusM": "Radius",
+    "horizon": "Horisont",
+    "wireframe": "Vis rutenett (wireframe)"
   }
 }

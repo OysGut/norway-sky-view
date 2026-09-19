@@ -51,9 +51,9 @@ const PROBES: readonly Probe[] = [
   },
   {
     id: "sognefjorden",
-    name: "Sognefjorden (sea level)",
-    lat: 61.087,
-    lon: 6.523,
+    name: "Sognefjorden (sea level, off Balestrand)",
+    lat: 61.17,
+    lon: 6.56,
     expectedM: 0,
     toleranceM: 5,
   },

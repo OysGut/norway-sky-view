@@ -8,7 +8,7 @@
 // limit. verify_jwt is off (no auth yet) — the allowlist is the boundary.
 // Every call writes one usage_events row (cost metering) with the service role.
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -39,7 +39,7 @@ const CORS_HEADERS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// In-memory cache (survives between invocations while the isolate is warm)
+// In-memory cache (fast path while the isolate is warm; see proxy_cache below)
 
 interface CacheEntry {
   body: Uint8Array<ArrayBuffer>;
@@ -90,7 +90,7 @@ function clientIp(req: Request): string {
 // ---------------------------------------------------------------------------
 // Helpers
 
-type CacheStatus = "HIT" | "MISS" | "REVALIDATED";
+type CacheStatus = "HIT" | "HIT_DB" | "MISS" | "REVALIDATED";
 
 function json(status: number, body: unknown, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -151,6 +151,89 @@ function computeExpiry(hostRule: HostRule, upstream: Headers, now: number): numb
 }
 
 // ---------------------------------------------------------------------------
+// Durable cache in Postgres (proxy_cache). Isolates do not share memory, so the
+// in-memory Map above is only a fast path; this is what makes "one MET call per
+// place per hour" true across all users. Service role only.
+
+let adminClient: SupabaseClient | null = null;
+
+function admin(): SupabaseClient | null {
+  if (adminClient) return adminClient;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceKey) return null;
+  adminClient = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return adminClient;
+}
+
+interface ProxyCacheRow {
+  cache_key: string;
+  body: string;
+  content_type: string;
+  last_modified: string | null;
+  expires_at: string;
+}
+
+async function dbCacheGet(key: string): Promise<CacheEntry | undefined> {
+  const client = admin();
+  if (!client) return undefined;
+  try {
+    const { data, error } = await client
+      .from("proxy_cache")
+      .select("cache_key, body, content_type, last_modified, expires_at")
+      .eq("cache_key", key)
+      .maybeSingle();
+    if (error || !data) return undefined;
+    const row = data as unknown as ProxyCacheRow;
+    const encoded = new TextEncoder().encode(row.body);
+    const body = new Uint8Array(new ArrayBuffer(encoded.byteLength));
+    body.set(encoded);
+    const entry: CacheEntry = {
+      body,
+      contentType: row.content_type,
+      expiresAt: Date.parse(row.expires_at),
+    };
+    if (row.last_modified) entry.lastModified = row.last_modified;
+    return entry;
+  } catch (error) {
+    console.error(
+      "[proxy-fetch] db cache read failed:",
+      error instanceof Error ? error.message : error,
+    );
+    return undefined;
+  }
+}
+
+async function dbCacheSet(key: string, entry: CacheEntry): Promise<void> {
+  const client = admin();
+  if (!client) return;
+  try {
+    await client.from("proxy_cache").upsert({
+      cache_key: key,
+      body: new TextDecoder().decode(entry.body),
+      content_type: entry.contentType,
+      last_modified: entry.lastModified ?? null,
+      expires_at: new Date(entry.expiresAt).toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    // Occasionally sweep rows that expired more than a day ago.
+    if (Math.random() < 0.02) {
+      await client
+        .from("proxy_cache")
+        .delete()
+        .lt("expires_at", new Date(Date.now() - 86_400_000).toISOString());
+    }
+  } catch (error) {
+    console.error(
+      "[proxy-fetch] db cache write failed:",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Metering (never blocks or breaks the response)
 
 interface MeterInput {
@@ -162,21 +245,17 @@ interface MeterInput {
 
 async function meter(input: MeterInput): Promise<void> {
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!supabaseUrl || !serviceKey) return;
-    const admin = createClient(supabaseUrl, serviceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const client = admin();
+    if (!client) return;
 
     let userId: string | null = null;
     if (input.authHeader?.startsWith("Bearer ")) {
       const token = input.authHeader.slice("Bearer ".length);
-      const { data } = await admin.auth.getUser(token);
+      const { data } = await client.auth.getUser(token);
       userId = data.user?.id ?? null;
     }
 
-    await admin.from("usage_events").insert({
+    await client.from("usage_events").insert({
       user_id: userId,
       kind: "edge_call",
       quantity: 1,
@@ -234,10 +313,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const upstreamUrl = target.toString();
   const cacheKey = slim ? `${upstreamUrl}#slim=${slim}` : upstreamUrl;
 
-  const cached = cacheGet(cacheKey);
+  let cached = cacheGet(cacheKey);
   if (cached && cached.expiresAt > now) {
     schedule(meter({ host: target.hostname, cache: "HIT", status: 200, authHeader }));
     return bodyResponse(cached, "HIT", now);
+  }
+
+  if (!cached) {
+    cached = await dbCacheGet(cacheKey);
+    if (cached) {
+      cacheSet(cacheKey, cached);
+      if (cached.expiresAt > now) {
+        schedule(meter({ host: target.hostname, cache: "HIT_DB", status: 200, authHeader }));
+        return bodyResponse(cached, "HIT_DB", now);
+      }
+    }
   }
 
   const upstreamHeaders: Record<string, string> = {
@@ -265,8 +355,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (upstream.status === 304 && cached) {
     cached.expiresAt = computeExpiry(rule, upstream.headers, now);
     cacheSet(cacheKey, cached);
-    schedule(meter({ host: target.hostname, cache: "REVALIDATED", status: 200, authHeader }));
-    return bodyResponse(cached, "REVALIDATED", now);
+    const revalidated = cached;
+    schedule(
+      Promise.all([
+        dbCacheSet(cacheKey, revalidated),
+        meter({ host: target.hostname, cache: "REVALIDATED", status: 200, authHeader }),
+      ]),
+    );
+    return bodyResponse(revalidated, "REVALIDATED", now);
   }
 
   if (!upstream.ok) {
@@ -305,6 +401,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (lastModified) entry.lastModified = lastModified;
   cacheSet(cacheKey, entry);
 
-  schedule(meter({ host: target.hostname, cache: "MISS", status: 200, authHeader }));
+  schedule(
+    Promise.all([
+      dbCacheSet(cacheKey, entry),
+      meter({ host: target.hostname, cache: "MISS", status: 200, authHeader }),
+    ]),
+  );
   return bodyResponse(entry, "MISS", now);
 });

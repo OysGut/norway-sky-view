@@ -91,5 +91,19 @@
     "heading": "Heading",
     "height": "Camera height",
     "keys": "WASD move · Q/E rotate · wheel height"
+  },
+  "bend": {
+    "title": "Bent World",
+    "enabled": "Bend on/off",
+    "flatFraction": "Flat zone",
+    "radiusFraction": "Radius",
+    "compressionFraction": "Compression",
+    "drama": "Drama",
+    "userPointScreenFraction": "User point on screen",
+    "backward": "Bend behind too",
+    "flatM": "Flat zone",
+    "radiusM": "Radius",
+    "horizon": "Horizon",
+    "wireframe": "Show wireframe"
   }
 }
