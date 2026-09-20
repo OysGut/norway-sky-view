@@ -5,6 +5,7 @@ import {
   DEFAULT_VIEW_SETTINGS,
   MAP_STORE_STORAGE_KEY,
   currentViewSettings,
+  rememberPlace,
   sanitizeViewSettings,
   useMapStore,
 } from "./mapStore";
@@ -162,5 +163,29 @@ describe("persistence", () => {
   it("uses a stable storage key and skips automatic hydration", () => {
     expect(MAP_STORE_STORAGE_KEY).toBe("himinrond_map");
     expect(useMapStore.persist.getOptions().skipHydration).toBe(true);
+  });
+});
+
+describe("favourite places", () => {
+  it("remembers fly-to targets, newest last, without near-duplicates, capped", () => {
+    let places = rememberPlace([], { lat: 61.6, lon: 8.3 });
+    places = rememberPlace(places, { lat: 69.6, lon: 18.9 });
+    places = rememberPlace(places, { lat: 61.601, lon: 8.301 }); // same place again → moves to the end
+    expect(places).toEqual([
+      { lat: 69.6, lon: 18.9 },
+      { lat: 61.601, lon: 8.301 },
+    ]);
+    for (let i = 0; i < 20; i++) places = rememberPlace(places, { lat: 58 + i, lon: 5 });
+    expect(places).toHaveLength(12);
+    expect(places[11]).toEqual({ lat: 77, lon: 5 });
+  });
+
+  it("flyTo records the target as a favourite", () => {
+    useMapStore.getState().flyTo({ lat: 60.39, lon: 5.32 });
+    const s = useMapStore.getState();
+    expect(s.flight).not.toBeNull();
+    expect(s.favouritePlaces).toEqual([{ lat: 60.39, lon: 5.32 }]);
+    s.cancelFlight();
+    expect(useMapStore.getState().flight).toBeNull();
   });
 });

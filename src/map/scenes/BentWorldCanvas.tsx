@@ -43,6 +43,8 @@ const REBASE_DISTANCE_M = 50_000;
 const CAMERA_FAR_M = 1_500_000;
 /** Slower easing for view-mode transitions (pitch, composition, bend strength). */
 const MODE_EASE_RATE = 3;
+/** Heading and position ease together, quickly, so drags and turns feel direct but smooth. */
+const POSE_EASE_RATE = 14;
 /** Sun for the placeholder lighting until phase 2 drives it from suncalc. */
 const SUN_DIRECTION = new THREE.Vector3(-0.55, 0.7, 0.45).normalize();
 
@@ -59,6 +61,9 @@ interface ViewState {
   composition: number;
   /** eased bend strength 0..1 */
   bendEnabled: number;
+  /** eased user point (degrees); heading and position ease at the same rate so turning about a pivot stays put */
+  lat: number;
+  lon: number;
 }
 
 function ease(
@@ -73,10 +78,16 @@ function ease(
   return current + (target - current) * k;
 }
 
-function easeAngleDeg(current: number, target: number, dt: number, snap: boolean): number {
+function easeAngleDeg(
+  current: number,
+  target: number,
+  dt: number,
+  snap: boolean,
+  rate: number = EASE_RATE,
+): number {
   let delta = ((target - current + 540) % 360) - 180;
   if (snap) delta = target - current;
-  const k = snap ? 1 : 1 - Math.exp(-dt * EASE_RATE);
+  const k = snap ? 1 : 1 - Math.exp(-dt * rate);
   return (((current + delta * k) % 360) + 360) % 360;
 }
 
@@ -191,12 +202,32 @@ function WorldRoot({
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.1);
     const state = useMapStore.getState();
-    view.current.heading = easeAngleDeg(view.current.heading, state.heading, dt, reducedMotion);
+    view.current.heading = easeAngleDeg(
+      view.current.heading,
+      state.heading,
+      dt,
+      reducedMotion,
+      POSE_EASE_RATE,
+    );
+    view.current.lat = ease(
+      view.current.lat,
+      state.userPoint.lat,
+      dt,
+      reducedMotion,
+      POSE_EASE_RATE,
+    );
+    view.current.lon = ease(
+      view.current.lon,
+      state.userPoint.lon,
+      dt,
+      reducedMotion,
+      POSE_EASE_RATE,
+    );
     view.current.ground = ease(view.current.ground, state.groundHeight, dt, reducedMotion);
     if (rotation.current) rotation.current.rotation.y = (view.current.heading * Math.PI) / 180;
     if (translation.current) {
       // the ground under the user becomes y = 0: the bend cylinder and the camera are anchored there
-      const offset = lonLatToEnu(origin.current, state.userPoint);
+      const offset = lonLatToEnu(origin.current, { lat: view.current.lat, lon: view.current.lon });
       translation.current.position.set(-offset.east, -view.current.ground, offset.north);
     }
   });
@@ -282,6 +313,8 @@ export default function BentWorldCanvas() {
     height: effectiveCameraHeight(initial),
     heading: initial.heading,
     ground: initial.groundHeight,
+    lat: initial.userPoint.lat,
+    lon: initial.userPoint.lon,
     pitch: initial.cameraPitch,
     composition: initial.userPointScreenFraction,
     bendEnabled: initial.bend.enabled,

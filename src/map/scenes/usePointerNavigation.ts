@@ -11,6 +11,7 @@ import { enuToLonLat } from "@/map/engine/projection";
 import { effectiveCameraHeight, useMapStore } from "@/map/store/mapStore";
 
 import { groundHit, sceneDeltaToEnu, toNdc } from "./dragMath";
+import { turnTo } from "./rotation";
 
 const ROTATE_DEG_PER_PX = 0.3;
 /** Momentum decays as exp(-dt · MOMENTUM_DECAY). */
@@ -86,8 +87,9 @@ export function usePointerNavigation(
 
       if (d.mode === "rotate") {
         const dx = event.clientX - d.lastX;
-        const heading = (((state.heading + dx * ROTATE_DEG_PER_PX) % 360) + 360) % 360;
-        state.setHeading(heading);
+        const turned = turnTo(state, state.heading + dx * ROTATE_DEG_PER_PX);
+        state.setHeading(turned.heading);
+        if (turned.userPoint !== state.userPoint) state.setUserPoint(turned.userPoint);
       } else {
         const hit = hitAt(event.clientX, event.clientY);
         if (hit && d.lastHit) {

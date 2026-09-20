@@ -14,6 +14,7 @@ import {
   remapDistance,
   lookAheadForComposition,
   radiusForHorizon,
+  groundDistanceAtScreenFraction,
   screenFractionOfGround,
   lateralDistanceFor,
   lateralScale,
@@ -372,5 +373,32 @@ describe("bendParamsFromView", () => {
     const r = radiusForHorizon(1200, 300, 180, 100, 0.2, 50); // horizon below where the flat zone ends
     expect(r).toBeCloseTo(0.02 * 1200, 9);
     expect(radiusForHorizon(1200, 300, 180, 200, 1.6, 50)).toBeCloseTo(0.02 * 1200, 9); // asymptote
+  });
+});
+
+describe("groundDistanceAtScreenFraction", () => {
+  it("inverts screenFractionOfGround between the user point and the horizon", () => {
+    const h = 1200;
+    const p = bendParamsFromView(h, FRACTIONS, VIEW);
+    const ahead = lookAheadForComposition(h, VIEW);
+    for (const fraction of [0.35, 0.5, 0.7]) {
+      const d = groundDistanceAtScreenFraction(fraction, p, h, ahead, VIEW.fovDeg);
+      expect(screenFractionOfGround(d, p, h, ahead, VIEW.fovDeg)).toBeCloseTo(fraction, 6);
+    }
+    // the user point sits at 0.3: anything below it maps to distance 0
+    expect(groundDistanceAtScreenFraction(0.1, p, h, ahead, VIEW.fovDeg)).toBe(0);
+    // above the horizon: clamps to the horizon distance
+    expect(groundDistanceAtScreenFraction(0.99, p, h, ahead, VIEW.fovDeg)).toBeCloseTo(
+      horizonDistance(p),
+      6,
+    );
+  });
+
+  it("works with the bend off (plain perspective, straight down)", () => {
+    const h = 1200;
+    const p = { ...bendParamsFromView(h, FRACTIONS, VIEW), enabled: 0 };
+    const ahead = lookAheadForComposition(h, VIEW);
+    const d = groundDistanceAtScreenFraction(0.5, p, h, ahead, VIEW.fovDeg);
+    expect(d).toBeCloseTo(ahead, 6);
   });
 });

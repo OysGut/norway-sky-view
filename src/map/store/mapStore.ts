@@ -103,6 +103,8 @@ export interface MapState extends ViewSettings {
   layers: Record<string, boolean>;
   /** Flight in progress (fly-to); the scene samples it every frame. Null when idle. */
   flight: Flight | null;
+  /** Places the user searched for / flew to (newest last); terrain around them is kept longer. */
+  favouritePlaces: UserPoint[];
   setUserPoint: (userPoint: UserPoint) => void;
   setHeading: (heading: number) => void;
   setCameraHeight: (cameraHeight: number) => void;
@@ -281,12 +283,39 @@ export function effectiveCameraHeight(
   return s.cameraHeight;
 }
 
+export const MAX_FAVOURITE_PLACES = 12;
+
+/** Add a place to the favourites (newest last), dropping near-duplicates and the oldest beyond the cap. */
+export function rememberPlace(places: readonly UserPoint[], place: UserPoint): UserPoint[] {
+  const kept = places.filter(
+    (p) => Math.abs(p.lat - place.lat) > 0.01 || Math.abs(p.lon - place.lon) > 0.02,
+  );
+  kept.push({ lat: place.lat, lon: place.lon });
+  return kept.slice(-MAX_FAVOURITE_PLACES);
+}
+
+function sanitizePlaces(raw: unknown): UserPoint[] {
+  if (!Array.isArray(raw)) return [];
+  const out: UserPoint[] = [];
+  for (const p of raw) {
+    if (!isRecord(p)) continue;
+    const lat = p["lat"];
+    const lon = p["lon"];
+    if (typeof lat !== "number" || typeof lon !== "number") continue;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+    out.push({ lat, lon });
+  }
+  return out.slice(-MAX_FAVOURITE_PLACES);
+}
+
 /** The slice of the state that survives a reload. */
 interface PersistedMapState {
   mode: MapMode;
   view: ViewSettings;
   viewSettingsByMode: Record<MapMode, ViewSettings>;
   presets: ViewPreset[];
+  favouritePlaces: UserPoint[];
 }
 
 export const MAP_STORE_STORAGE_KEY = "himinrond_map";
@@ -321,6 +350,7 @@ export const useMapStore = create<MapState>()(
       presets: [],
       layers: {},
       flight: null,
+      favouritePlaces: [],
       setUserPoint: (userPoint) => set({ userPoint }),
       setHeading: (heading) => set({ heading }),
       setCameraHeight: (cameraHeight) =>
@@ -392,7 +422,7 @@ export const useMapStore = create<MapState>()(
           toHeading: options?.heading,
           maxHeight: CAMERA_HEIGHT_MAX,
         });
-        set({ flight });
+        set({ flight, favouritePlaces: rememberPlace(s.favouritePlaces, target) });
       },
       cancelFlight: () => set((state) => (state.flight ? { flight: null } : {})),
     }),
@@ -409,6 +439,7 @@ export const useMapStore = create<MapState>()(
         view: currentViewSettings(state),
         viewSettingsByMode: state.viewSettingsByMode,
         presets: state.presets,
+        favouritePlaces: state.favouritePlaces,
       }),
       merge: (persisted, current) => {
         if (!isRecord(persisted)) return current;
@@ -424,7 +455,8 @@ export const useMapStore = create<MapState>()(
         const presets = Array.isArray(persisted["presets"])
           ? persisted["presets"].map(sanitizePreset).filter((p): p is ViewPreset => p !== null)
           : [];
-        return { ...current, mode, viewSettingsByMode, presets, ...view };
+        const favouritePlaces = sanitizePlaces(persisted["favouritePlaces"]);
+        return { ...current, mode, viewSettingsByMode, presets, favouritePlaces, ...view };
       },
     },
   ),

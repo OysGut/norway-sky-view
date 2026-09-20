@@ -313,6 +313,32 @@ export function horizonDistance(p: BendParams): number {
  * viewport height from the bottom, for a camera at height h looking straight down at a
  * target `lookAheadM` in front of the origin with the given vertical field of view.
  */
+/**
+ * Inverse of screenFractionOfGround: the unbent forward distance (metres) of the ground
+ * point that appears at `fraction` of the screen height, found by bisection between the
+ * user point and the horizon (the mapping is monotone up to the horizon). Returns 0 when the
+ * fraction lies below the user point and the horizon distance when it lies above the horizon.
+ */
+export function groundDistanceAtScreenFraction(
+  fraction: number,
+  p: BendParams,
+  cameraHeightM: number,
+  lookAheadM: number,
+  fovDeg: number,
+): number {
+  const at = (d: number) => screenFractionOfGround(d, p, cameraHeightM, lookAheadM, fovDeg);
+  let lo = 0;
+  let hi = p.enabled > 0 ? horizonDistance(p) : cameraHeightM * 50;
+  if (at(lo) >= fraction) return 0;
+  if (at(hi) <= fraction) return hi;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (at(mid) < fraction) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 export function screenFractionOfGround(
   d: number,
   p: BendParams,

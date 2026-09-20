@@ -10,7 +10,12 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 
-import { lonLatToEnu, lonLatToTilePixel, type LonLat } from "@/map/engine/projection";
+import {
+  lonLatToEnu,
+  lonLatToTilePixel,
+  type LonLat,
+  type LonLatBounds,
+} from "@/map/engine/projection";
 import { sampleBilinear } from "@/map/engine/terrain/terrarium";
 import { applyBendToMaterial } from "@/map/engine/shaders/bendMaterial";
 import type { BendUniforms } from "@/map/engine/shaders/bend.glsl";
@@ -36,6 +41,16 @@ const SPEED_SMOOTHING = 6;
 
 /** Concurrent mesh requests in flight. */
 const MAX_IN_FLIGHT = 6;
+/**
+ * Tiles are kept (hidden) after they leave the plan so coming back shows them at once
+ * instead of re-fetching and re-meshing; beyond this many records the least recently
+ * wanted ones are evicted. ≈ 100 records are in the plan at any time.
+ */
+const MAX_RECORDS = 350;
+/** Tiles within this distance of a favourite place (searched / flown to) are evicted last. */
+const FAVOURITE_RADIUS_M = 25_000;
+/** Eviction priority bonus for favourites, in ms of "recency". */
+const FAVOURITE_BONUS_MS = 6 * 60 * 60 * 1000;
 /** Zoom of the tile used to sample the ground height under the user. */
 const GROUND_ZOOM = 13;
 /** Ground-tile fetch failure backoff. */
@@ -51,17 +66,28 @@ function backoffMs(attempt: number, base: number, max: number): number {
   return Math.min(max, base * 2 ** Math.max(0, attempt - 1));
 }
 
+function boundsOverlap(a: LonLatBounds, b: LonLatBounds): boolean {
+  return a.west < b.east && b.west < a.east && a.south < b.north && b.south < a.north;
+}
+
 function kartverketTileUrl(layer: string, z: number, x: number, y: number): string {
   return `https://cache.kartverket.no/v1/wmts/1.0.0/${layer}/default/webmercator/${z}/${y}/${x}.png`;
 }
 
 interface TileRecord {
   job: TileJob;
+  /** z/x/y — shared by records of the same tile with different holes/rims */
+  tileKey: string;
   mesh: THREE.Mesh | null;
   material: THREE.MeshLambertMaterial;
   texture: THREE.Texture | null;
   state: "queued" | "loading" | "ready" | "failed";
   disposed: boolean;
+  /** In the current plan. Unwanted records are retained hidden until evicted. */
+  wanted: boolean;
+  lastWantedAt: number;
+  /** Wanted-but-not-ready records overlapping this (unwanted) one: it stays visible until they are ready. */
+  blockers: Set<string>;
   /** Failed mesh attempts so far; drives the retry backoff. */
   meshAttempts: number;
   /** Earliest time (performance.now()) a failed mesh may be retried. */
@@ -74,7 +100,10 @@ interface TileRecord {
 class TerrainManager {
   readonly group = new THREE.Group();
   private readonly tiles = new Map<string, TileRecord>();
+  /** Loaded textures by tile key, shared by every record of that tile. */
+  private readonly textures = new Map<string, THREE.Texture>();
   private readonly textureLoader = new THREE.TextureLoader();
+  private favourites: readonly LonLat[] = [];
   private inFlight = 0;
   private lastPlanAt: LonLat | null = null;
   private synthetic = false;
@@ -108,7 +137,13 @@ class TerrainManager {
   }
 
   /** Called every frame; cheap unless a re-plan is due. */
-  update(userPoint: LonLat, synthetic: boolean, wireframe: boolean): void {
+  update(
+    userPoint: LonLat,
+    synthetic: boolean,
+    wireframe: boolean,
+    favourites: readonly LonLat[] = [],
+  ): void {
+    this.favourites = favourites;
     if (synthetic !== this.synthetic) {
       this.synthetic = synthetic;
       this.lastPlanAt = null; // force a full re-plan with the new source
@@ -198,10 +233,15 @@ class TerrainManager {
 
   private plan(userPoint: LonLat): void {
     const jobs = planRings(userPoint, this.activeSpecs);
-    const wanted = new Set(jobs.map((j) => j.jobKey));
-    for (const key of [...this.tiles.keys()]) if (!wanted.has(key)) this.drop(key);
+    const wantedKeys = new Set(jobs.map((j) => j.jobKey));
+    const now = performance.now();
+    for (const [key, record] of this.tiles) {
+      record.wanted = wantedKeys.has(key);
+      if (record.wanted) record.lastWantedAt = now;
+    }
     for (const job of jobs) {
       if (this.tiles.has(job.jobKey)) continue;
+      const tileKey = `${job.z}/${job.x}/${job.y}`;
       const material = applyBendToMaterial(
         new THREE.MeshLambertMaterial({
           color: this.synthetic ? SYNTHETIC_TINT : PLACEHOLDER,
@@ -209,17 +249,86 @@ class TerrainManager {
         }),
         this.uniforms,
       );
-      this.tiles.set(job.jobKey, {
+      const record: TileRecord = {
         job,
+        tileKey,
         mesh: null,
         material,
         texture: null,
         state: "queued",
         disposed: false,
+        wanted: true,
+        lastWantedAt: now,
+        blockers: new Set(),
         meshAttempts: 0,
         meshRetryAt: 0,
         textureAttempts: 0,
-      });
+      };
+      // a texture already loaded for this tile (earlier hole/rim) is reused at once
+      const texture = this.textures.get(tileKey);
+      if (texture) this.applyTexture(record, texture);
+      this.tiles.set(job.jobKey, record);
+    }
+    this.assignBlockers();
+    this.evict();
+    this.updateVisibility();
+  }
+
+  /** Each unwanted record stays visible while wanted records covering its area are still loading. */
+  private assignBlockers(): void {
+    const pending: TileRecord[] = [];
+    for (const r of this.tiles.values()) if (r.wanted && r.state !== "ready") pending.push(r);
+    for (const r of this.tiles.values()) {
+      r.blockers.clear();
+      if (r.wanted || r.state !== "ready") continue;
+      for (const w of pending)
+        if (boundsOverlap(r.job.bounds, w.job.bounds)) r.blockers.add(w.job.jobKey);
+    }
+  }
+
+  /** A wanted record became ready: it no longer blocks the hiding of the tiles it replaces. */
+  private releaseBlocker(jobKey: string): void {
+    for (const r of this.tiles.values()) r.blockers.delete(jobKey);
+  }
+
+  private updateVisibility(): void {
+    for (const r of this.tiles.values()) {
+      if (!r.mesh) continue;
+      r.mesh.visible = r.state === "ready" && (r.wanted || r.blockers.size > 0);
+    }
+  }
+
+  private isFavourite(record: TileRecord): boolean {
+    const b = record.job.bounds;
+    for (const f of this.favourites) {
+      const dLat = FAVOURITE_RADIUS_M / 111_132;
+      const dLon = FAVOURITE_RADIUS_M / (111_412 * Math.cos((f.lat * Math.PI) / 180));
+      if (
+        boundsOverlap(b, {
+          west: f.lon - dLon,
+          east: f.lon + dLon,
+          south: f.lat - dLat,
+          north: f.lat + dLat,
+        })
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Drop the least valuable hidden, unwanted records until under budget. */
+  private evict(): void {
+    if (this.tiles.size <= MAX_RECORDS) return;
+    const candidates = [...this.tiles.values()]
+      .filter((r) => !r.wanted && r.blockers.size === 0)
+      .map((r) => ({ r, score: r.lastWantedAt + (this.isFavourite(r) ? FAVOURITE_BONUS_MS : 0) }))
+      .sort((a, b) => a.score - b.score);
+    let excess = this.tiles.size - MAX_RECORDS;
+    for (const c of candidates) {
+      if (excess <= 0) break;
+      this.drop(c.r.job.jobKey);
+      excess--;
     }
   }
 
@@ -228,7 +337,9 @@ class TerrainManager {
     if (this.inFlight >= MAX_IN_FLIGHT) return;
     const now = performance.now();
     const ready = [...this.tiles.values()]
-      .filter((t) => t.state === "queued" || (t.state === "failed" && now >= t.meshRetryAt))
+      .filter(
+        (t) => t.wanted && (t.state === "queued" || (t.state === "failed" && now >= t.meshRetryAt)),
+      )
       .sort((a, b) => b.job.z - a.job.z);
     for (const record of ready) {
       if (this.inFlight >= MAX_IN_FLIGHT) break;
@@ -276,11 +387,14 @@ class TerrainManager {
       mesh.frustumCulled = false; // vertices move in the shader
       mesh.renderOrder = job.z; // finer rings draw after coarser ones
       mesh.name = job.jobKey;
+      mesh.visible = false;
       this.group.add(mesh);
       record.mesh = mesh;
       record.state = "ready";
+      this.releaseBlocker(job.jobKey);
+      this.updateVisibility();
 
-      if (!this.synthetic) this.loadTexture(record);
+      if (!this.synthetic && !record.texture) this.loadTexture(record);
     } catch (error) {
       record.state = "failed";
       record.meshAttempts++;
@@ -296,23 +410,38 @@ class TerrainManager {
     }
   }
 
+  private applyTexture(record: TileRecord, texture: THREE.Texture): void {
+    record.texture = texture;
+    record.material.map = texture;
+    record.material.color.set("#ffffff");
+    record.material.needsUpdate = true;
+  }
+
   private loadTexture(record: TileRecord): void {
     const { job } = record;
+    const cached = this.textures.get(record.tileKey);
+    if (cached) {
+      this.applyTexture(record, cached);
+      return;
+    }
     this.textureLoader.load(
       kartverketTileUrl("topo", job.z, job.x, job.y),
       (texture) => {
-        if (record.disposed) {
+        const existing = this.textures.get(record.tileKey);
+        if (record.disposed || existing) {
           texture.dispose();
+          if (existing && !record.disposed) this.applyTexture(record, existing);
           return;
         }
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.anisotropy = this.maxAnisotropy;
         texture.minFilter = THREE.LinearMipmapLinearFilter;
         texture.needsUpdate = true;
-        record.texture = texture;
-        record.material.map = texture;
-        record.material.color.set("#ffffff");
-        record.material.needsUpdate = true;
+        this.textures.set(record.tileKey, texture);
+        // every record of this tile (old and new hole/rim) gets it
+        for (const r of this.tiles.values()) {
+          if (r.tileKey === record.tileKey && !r.texture) this.applyTexture(r, texture);
+        }
         record.textureAttempts = 0;
       },
       undefined,
@@ -356,23 +485,48 @@ class TerrainManager {
       this.group.remove(record.mesh);
       record.mesh.geometry.dispose();
     }
-    record.texture?.dispose();
     record.material.dispose();
     this.tiles.delete(key);
+    // the texture lives as long as any record of the tile does
+    let shared = false;
+    for (const r of this.tiles.values()) if (r.tileKey === record.tileKey) shared = true;
+    if (!shared) {
+      this.textures.get(record.tileKey)?.dispose();
+      this.textures.delete(record.tileKey);
+    }
+    for (const r of this.tiles.values()) r.blockers.delete(key);
   }
 
   dispose(): void {
     for (const key of [...this.tiles.keys()]) this.drop(key);
   }
 
-  get stats(): { tiles: number; ready: number; loading: number } {
+  get stats(): {
+    tiles: number;
+    ready: number;
+    loading: number;
+    wanted: number;
+    visible: number;
+    textures: number;
+  } {
     let ready = 0;
     let loading = 0;
+    let wanted = 0;
+    let visible = 0;
     for (const t of this.tiles.values()) {
       if (t.state === "ready") ready++;
       if (t.state === "loading" || t.state === "queued") loading++;
+      if (t.wanted) wanted++;
+      if (t.mesh?.visible) visible++;
     }
-    return { tiles: this.tiles.size, ready, loading };
+    return {
+      tiles: this.tiles.size,
+      ready,
+      loading,
+      wanted,
+      visible,
+      textures: this.textures.size,
+    };
   }
 }
 
@@ -412,6 +566,7 @@ export function TerrainLayer({
       s.userPoint,
       s.layers[SYNTHETIC_LAYER] === true,
       s.layers[WIREFRAME_LAYER] === true,
+      s.favouritePlaces,
     );
     const ground = manager.groundHeightAt(s.userPoint);
     if (ground !== null && Math.abs(ground - s.groundHeight) > 0.05) s.setGroundHeight(ground);

@@ -7,6 +7,8 @@ import { useEffect, useRef } from "react";
 import { enuToLonLat } from "@/map/engine/projection";
 import { effectiveCameraHeight, useMapStore } from "@/map/store/mapStore";
 
+import { turnTo } from "./rotation";
+
 const ROTATE_DEG_PER_SECOND = 60;
 
 const NAV_KEYS = new Set([
@@ -97,9 +99,10 @@ export function useKeyboardNavigation(
     if (keys.has("q") || keys.has("arrowleft")) turn -= 1;
     if (keys.has("e") || keys.has("arrowright")) turn += 1;
     if (turn !== 0) {
-      let heading = state.heading + turn * ROTATE_DEG_PER_SECOND * dt;
-      heading = ((heading % 360) + 360) % 360;
-      state.setHeading(heading);
+      // turn about the view's pivot (screen centre in Himinrond, the user point otherwise)
+      const turned = turnTo(state, state.heading + turn * ROTATE_DEG_PER_SECOND * dt);
+      state.setHeading(turned.heading);
+      if (turned.userPoint !== state.userPoint) state.setUserPoint(turned.userPoint);
     }
 
     // Translation, camera-relative (forward = direction of heading)
