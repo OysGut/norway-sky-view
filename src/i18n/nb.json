@@ -95,7 +95,7 @@
     "keys": "WASD flytt · Q/E roter · hjul høyde"
   },
   "bend": {
-    "title": "Bøyd verden",
+    "title": "Himinrond",
     "enabled": "Bøyning på/av",
     "horizonScreenFraction": "Horisont på skjermen",
     "horizonDistanceM": "Horisontavstand",
@@ -103,6 +103,7 @@
     "transitionFraction": "Overgang",
     "curveExponent": "Kurveprofil",
     "drama": "Dramatikk",
+    "lateralConvergence": "Perspektiv mot horisonten",
     "userPointScreenFraction": "Ståsted på skjermen",
     "backward": "Bøy også bakover",
     "flatM": "Flat sone",
@@ -122,7 +123,7 @@
   },
   "view": {
     "title": "Visning",
-    "bent": "Bøyd verden",
+    "bent": "Himinrond",
     "classic3d": "Klassisk 3D",
     "flat": "Flatt ovenfra"
   },

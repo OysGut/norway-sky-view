@@ -5,9 +5,16 @@
 // are transferred (not copied) back to the main thread. The worker owns the
 // tile cache so heights never cross the thread boundary unless asked for.
 
-import { tileToLonLatBounds } from "../projection";
-import { decodeTerrarium } from "../terrain/terrarium";
-import { buildTerrainMesh } from "../terrainLOD/mesher";
+import { tileFloatToLonLat } from "../projection";
+import { decodeTerrarium, sampleBilinear } from "../terrain/terrarium";
+import {
+  HeightOracle,
+  ORACLE_TILE_SIZE,
+  rimEdgeGeometry,
+  type OracleTile,
+} from "../terrainLOD/heightOracle";
+import { buildTerrainMesh, type MeshRim, type RimEdge } from "../terrainLOD/mesher";
+import type { RimSpec } from "../terrainLOD/rings";
 import { TileCache } from "../terrainLOD/tileCache";
 import {
   terrariumTileUrl,
@@ -92,14 +99,21 @@ async function loadHeights(z: number, x: number, y: number): Promise<Heights> {
   return fresh;
 }
 
-/** Deterministic rolling hills for offline testing: a few smooth sines of lon/lat. */
+/**
+ * Deterministic rolling hills for offline testing: a few smooth sines of
+ * lon/lat, sampled at pixel-centre GLOBAL coordinates rather than positions
+ * local to one tile's own bounds — so two adjacent synthetic tiles (or a fine
+ * tile and the coarser tile it stitches against) are exact samples of the
+ * same continuous surface and the height oracle can blend across their
+ * shared edge without a seam.
+ */
 function syntheticHeights(z: number, x: number, y: number, size = 256): Heights {
-  const b = tileToLonLatBounds(x, y, z);
   const heights = new Float32Array(size * size);
   for (let j = 0; j < size; j++) {
-    const lat = b.north + ((b.south - b.north) * (j + 0.5)) / size;
+    const gy = y * size + j + 0.5; // global pixel row at zoom z
     for (let i = 0; i < size; i++) {
-      const lon = b.west + ((b.east - b.west) * (i + 0.5)) / size;
+      const gx = x * size + i + 0.5; // global pixel column at zoom z
+      const { lon, lat } = tileFloatToLonLat(gx / size, gy / size, z);
       const h =
         900 +
         700 * Math.sin(lon * 40) * Math.cos(lat * 55) +
@@ -117,19 +131,112 @@ async function handleDecode(request: DecodeRequest): Promise<WorkerResponse> {
   return { type: "decoded", id, z, x, y, ...h };
 }
 
+/** Load one tile's heights, in the shape the height oracle wants. */
+async function loadOracleTile(
+  z: number,
+  x: number,
+  y: number,
+  synthetic: boolean,
+): Promise<OracleTile> {
+  const h = synthetic ? syntheticHeights(z, x, y) : await loadHeights(z, x, y);
+  return { width: h.width, height: h.height, heights: h.heights };
+}
+
+/** Read a value from an already-known grid at (i, j), clamped to its own edges. */
+function gridSample(grid: Float32Array, n: number, S: number, i: number, j: number): number {
+  const ci = i < 0 ? 0 : i > S ? S : i;
+  const cj = j < 0 ? 0 : j > S ? S : j;
+  return grid[cj * n + ci] ?? 0;
+}
+
+const RIM_EDGES: readonly RimEdge[] = ["north", "south", "west", "east"];
+
+/** Build the rim overrides for a mesh request: heights sampled from the coarser ring's oracle at coarse vertex positions. */
+async function buildRim(
+  request: MeshRequest,
+  loadTile: (z: number, x: number, y: number) => Promise<OracleTile>,
+): Promise<MeshRim | undefined> {
+  const spec: RimSpec | undefined = request.rim;
+  if (!spec) return undefined;
+  const coarseOracle = new HeightOracle(spec.coarseZoom, loadTile, ORACLE_TILE_SIZE);
+  const rim: MeshRim = {};
+  for (const edge of RIM_EDGES) {
+    if (!spec.edges[edge]) continue;
+    const geometry = rimEdgeGeometry(
+      { zoom: request.z, x: request.x, y: request.y, segments: request.segments },
+      { zoom: spec.coarseZoom, segments: spec.coarseSegments },
+      edge,
+    );
+    const values = await Promise.all(
+      Array.from({ length: geometry.quads + 1 }, (_unused, k) => {
+        const { gx, gy } = geometry.pixelAt(k);
+        return coarseOracle.height(gx, gy);
+      }),
+    );
+    rim[edge] = { quads: geometry.quads, heightAt: (k: number) => values[k] ?? 0 };
+  }
+  return rim;
+}
+
 async function handleMesh(request: MeshRequest): Promise<WorkerResponse> {
-  const { id, z, x, y } = request;
-  const h = request.synthetic ? syntheticHeights(z, x, y) : await loadHeights(z, x, y);
+  const { id, z, x, y, synthetic } = request;
+  const h = synthetic ? syntheticHeights(z, x, y) : await loadHeights(z, x, y);
+  const own: OracleTile = { width: h.width, height: h.height, heights: h.heights };
   const meshStart = performance.now();
+
+  // A single loader backs both this tile's own oracle and (if needed) the
+  // coarser ring's oracle for rim stitching; the tile this request is for is
+  // seeded so it is never fetched twice.
+  const loadTile = async (tz: number, tx: number, ty: number): Promise<OracleTile> => {
+    if (tz === z && tx === x && ty === y) return own;
+    return loadOracleTile(tz, tx, ty, synthetic === true);
+  };
+
+  const S = request.segments;
+  const n = S + 1;
+  const oracle = new HeightOracle(z, loadTile, ORACLE_TILE_SIZE);
+  const grid = new Float32Array(n * n);
+  // Vertices on a rim edge are overridden by the coarser ring's heights below, so
+  // they are sampled from this tile alone: no point fetching the neighbour across
+  // a boundary whose values are discarded anyway.
+  const rimEdges = request.rim?.edges;
+  const onRim = (i: number, j: number): boolean =>
+    rimEdges !== undefined &&
+    ((j === 0 && rimEdges.north === true) ||
+      (j === S && rimEdges.south === true) ||
+      (i === 0 && rimEdges.west === true) ||
+      (i === S && rimEdges.east === true));
+  await Promise.all(
+    Array.from({ length: n * n }, (_unused, k) => {
+      const i = k % n;
+      const j = Math.floor(k / n);
+      if (onRim(i, j)) {
+        grid[k] = Math.max(
+          0,
+          sampleBilinear(h.heights, h.width, h.height, (i / S) * h.width, (j / S) * h.height),
+        );
+        return Promise.resolve();
+      }
+      const gx = x * ORACLE_TILE_SIZE + (i / S) * ORACLE_TILE_SIZE;
+      const gy = y * ORACLE_TILE_SIZE + (j / S) * ORACLE_TILE_SIZE;
+      return oracle.height(gx, gy).then((height) => {
+        grid[k] = height;
+      });
+    }),
+  );
+  const heightAt = (u: number, v: number): number =>
+    gridSample(grid, n, S, Math.round(u * S), Math.round(v * S));
+
+  const rim = await buildRim(request, loadTile);
+
   const mesh = buildTerrainMesh({
-    heights: h.heights,
-    width: h.width,
-    height: h.height,
+    heightAt,
     widthM: request.widthM,
     depthM: request.depthM,
     segments: request.segments,
     skirtDepth: request.skirtDepth,
     hole: request.hole,
+    rim,
   });
   return {
     type: "meshed",

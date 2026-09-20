@@ -20,7 +20,10 @@
 //                                              profile that reaches 90° at the same arc length
 //   f'    = 1 - u' · u / (L + u)               derivative of the remapped distance (C¹, starts at 1)
 //   yEff  = y · f'^drama                       heights shrink with the compression ("Dramatikk")
-//   out   = (x, (R + yEff) cosθ - R, -(base + (R + yEff) sinθ) · sign)
+//   s     = 1 / (1 + u / P)                    lateral convergence: sideways offsets shrink with the
+//                                              depth into the compressed zone so far terrain gathers
+//                                              toward a vanishing point (P = ∞ disables)
+//   out   = (x · s, (R + yEff) cosθ - R, -(base + (R + yEff) sinθ) · sign)
 // Points behind the user are bent with weight `backwardWeight` (0 = kept flat).
 
 export interface BendParams {
@@ -40,6 +43,12 @@ export interface BendParams {
   thetaMax: number;
   /** 0 = terrain behind the user stays flat, 1 = bent like the front. */
   backwardWeight: number;
+  /**
+   * Lateral convergence distance P, metres: sideways offsets in the compressed zone are
+   * scaled by 1 / (1 + u / P), which gives far terrain a vanishing point like a real
+   * perspective (a point at azimuth ψ ends up at x ≈ P · tan ψ). Infinity disables.
+   */
+  lateralDistanceM: number;
   /** 0 = classic 3D (no bend), 1 = full Bent World. */
   enabled: number;
   /**
@@ -69,6 +78,12 @@ export interface BendFractions {
   curveExponent: number;
   drama: number;
   backwardWeight: number;
+  /**
+   * How strongly far terrain gathers toward a vanishing point, 0..1: the lateral
+   * convergence distance is camera height / value (0 = off, far terrain keeps its
+   * true sideways offsets and sweeps past when turning; 1 ≈ a normal camera).
+   */
+  lateralConvergence: number;
   /** Apply physical earth curvature (true) or keep the unbent world flat (false). */
   physicalCurvature: boolean;
 }
@@ -161,9 +176,22 @@ export function bendParamsFromView(
     drama: fractions.drama,
     thetaMax: DEFAULT_THETA_MAX,
     backwardWeight: fractions.backwardWeight,
+    lateralDistanceM: lateralDistanceFor(cameraHeightM, fractions.lateralConvergence),
     enabled,
     earthCurvature: fractions.physicalCurvature ? EARTH_CURVATURE : 0,
   };
+}
+
+/** Lateral convergence distance for a camera height and a 0..1 convergence setting (0 → ∞). */
+export function lateralDistanceFor(cameraHeightM: number, lateralConvergence: number): number {
+  const c = Math.min(1, Math.max(0, lateralConvergence));
+  return c <= 0 ? Infinity : cameraHeightM / c;
+}
+
+/** Sideways scale at compressed depth u: 1 / (1 + u / P). 1 when P is infinite. */
+export function lateralScale(u: number, lateralDistanceM: number): number {
+  if (!(lateralDistanceM < Infinity) || lateralDistanceM <= 0) return 1;
+  return 1 / (1 + u / lateralDistanceM);
 }
 
 /** Smooth max(v, 0) with a quadratic knee of half-width w. C¹. */
@@ -260,12 +288,13 @@ export function bendPoint(x: number, y: number, z: number, p: BendParams): BentP
   const yEff = y * Math.pow(Math.max(fPrime, 1e-6), p.drama);
   const rr = p.radiusM + yEff;
 
+  const bentX = x * lateralScale(u, p.lateralDistanceM);
   const bentY = rr * Math.cos(theta) - p.radiusM;
   const bentZ = -(base + rr * Math.sin(theta)) * sign;
 
-  if (weight >= 1) return { x, y: bentY, z: bentZ, theta };
+  if (weight >= 1) return { x: bentX, y: bentY, z: bentZ, theta };
   return {
-    x,
+    x: x + (bentX - x) * weight,
     y: y + (bentY - y) * weight,
     z: z + (bentZ - z) * weight,
     theta: theta * weight,

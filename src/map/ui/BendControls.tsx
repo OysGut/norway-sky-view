@@ -21,7 +21,8 @@ type NumericBendKey =
   | "flatFraction"
   | "transitionFraction"
   | "curveExponent"
-  | "drama";
+  | "drama"
+  | "lateralConvergence";
 
 interface SliderSpec {
   key: NumericBendKey;
@@ -57,6 +58,13 @@ const SLIDERS: readonly SliderSpec[] = [
   },
   { key: "curveExponent", min: 0.4, max: 2.5, step: 0.05, format: (v, l) => formatNumber(v, 2, l) },
   { key: "drama", min: 0, max: 1, step: 0.05, format: (v, l) => formatNumber(v, 2, l) },
+  {
+    key: "lateralConvergence",
+    min: 0,
+    max: 1,
+    step: 0.05,
+    format: (v, l) => formatNumber(v, 2, l),
+  },
 ];
 
 function ControlRow({
@@ -79,7 +87,7 @@ function ControlRow({
   );
 }
 
-/** Live tuning of the Bent World parameters. Writes only through mapStore. */
+/** Live tuning of the Himinrond (bent world) parameters. Writes only through mapStore. */
 export function BendControls({ className }: BendControlsProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();

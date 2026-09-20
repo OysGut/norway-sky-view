@@ -28,6 +28,18 @@ const REPLAN_DISTANCE_M = 400;
 const MAX_IN_FLIGHT = 6;
 /** Zoom of the tile used to sample the ground height under the user. */
 const GROUND_ZOOM = 13;
+/** Ground-tile fetch failure backoff. */
+const GROUND_RETRY_MS = 5_000;
+/** Mesh retry backoff: 3 s, 6 s, 12 s, … capped at 60 s; unlimited attempts while a tile stays planned. */
+const MESH_RETRY_BASE_MS = 3_000;
+const MESH_RETRY_MAX_MS = 60_000;
+/** Texture retries are finite — a couple of attempts with the same style of backoff, then give up. */
+const TEXTURE_RETRY_BASE_MS = 3_000;
+const TEXTURE_MAX_ATTEMPTS = 3;
+
+function backoffMs(attempt: number, base: number, max: number): number {
+  return Math.min(max, base * 2 ** Math.max(0, attempt - 1));
+}
 
 function kartverketTileUrl(layer: string, z: number, x: number, y: number): string {
   return `https://cache.kartverket.no/v1/wmts/1.0.0/${layer}/default/webmercator/${z}/${y}/${x}.png`;
@@ -40,6 +52,12 @@ interface TileRecord {
   texture: THREE.Texture | null;
   state: "queued" | "loading" | "ready" | "failed";
   disposed: boolean;
+  /** Failed mesh attempts so far; drives the retry backoff. */
+  meshAttempts: number;
+  /** Earliest time (performance.now()) a failed mesh may be retried. */
+  meshRetryAt: number;
+  /** Failed texture attempts so far. */
+  textureAttempts: number;
 }
 
 /** Owns every terrain tile mesh under one group. */
@@ -106,6 +124,7 @@ class TerrainManager {
       })
       .catch((error: unknown) => {
         if (this.groundRequestKey === key) this.groundRequestKey = "";
+        this.groundRetryAt = performance.now() + GROUND_RETRY_MS;
         console.warn(
           "[terrain] ground tile failed:",
           error instanceof Error ? error.message : error,
@@ -142,17 +161,21 @@ class TerrainManager {
         texture: null,
         state: "queued",
         disposed: false,
+        meshAttempts: 0,
+        meshRetryAt: 0,
+        textureAttempts: 0,
       });
     }
   }
 
-  /** Start queued jobs, finest zoom first, up to the concurrency limit. */
+  /** Start queued jobs (and failed jobs whose backoff has elapsed), finest zoom first, up to the concurrency limit. */
   private pump(): void {
     if (this.inFlight >= MAX_IN_FLIGHT) return;
-    const queued = [...this.tiles.values()]
-      .filter((t) => t.state === "queued")
+    const now = performance.now();
+    const ready = [...this.tiles.values()]
+      .filter((t) => t.state === "queued" || (t.state === "failed" && now >= t.meshRetryAt))
       .sort((a, b) => b.job.z - a.job.z);
-    for (const record of queued) {
+    for (const record of ready) {
       if (this.inFlight >= MAX_IN_FLIGHT) break;
       void this.load(record);
     }
@@ -180,9 +203,12 @@ class TerrainManager {
         segments: job.segments,
         skirtDepth: job.skirtDepth,
         hole: job.hole,
+        rim: job.rim,
         synthetic: this.synthetic,
       });
       if (record.disposed) return;
+      record.meshAttempts = 0;
+      record.meshRetryAt = 0;
 
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.BufferAttribute(result.mesh.positions, 3));
@@ -202,8 +228,11 @@ class TerrainManager {
       if (!this.synthetic) this.loadTexture(record);
     } catch (error) {
       record.state = "failed";
+      record.meshAttempts++;
+      record.meshRetryAt =
+        performance.now() + backoffMs(record.meshAttempts, MESH_RETRY_BASE_MS, MESH_RETRY_MAX_MS);
       console.warn(
-        `[terrain] tile ${job.jobKey} failed:`,
+        `[terrain] tile ${job.jobKey} failed (attempt ${record.meshAttempts}, retrying):`,
         error instanceof Error ? error.message : error,
       );
     } finally {
@@ -229,9 +258,29 @@ class TerrainManager {
         record.material.map = texture;
         record.material.color.set("#ffffff");
         record.material.needsUpdate = true;
+        record.textureAttempts = 0;
       },
       undefined,
-      () => console.warn(`[terrain] texture failed: ${job.jobKey}`),
+      () => {
+        record.textureAttempts++;
+        if (record.disposed || record.textureAttempts >= TEXTURE_MAX_ATTEMPTS) {
+          console.warn(
+            `[terrain] texture failed, giving up after ${record.textureAttempts} attempt(s): ${job.jobKey}`,
+          );
+          return;
+        }
+        const delay = backoffMs(
+          record.textureAttempts,
+          TEXTURE_RETRY_BASE_MS,
+          TEXTURE_RETRY_BASE_MS * 4,
+        );
+        console.warn(
+          `[terrain] texture failed (attempt ${record.textureAttempts}, retrying in ${delay}ms): ${job.jobKey}`,
+        );
+        setTimeout(() => {
+          if (!record.disposed) this.loadTexture(record);
+        }, delay);
+      },
     );
   }
 

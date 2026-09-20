@@ -95,7 +95,7 @@
     "keys": "WASD move · Q/E rotate · wheel height"
   },
   "bend": {
-    "title": "Bent World",
+    "title": "Himinrond",
     "enabled": "Bend on/off",
     "horizonScreenFraction": "Horizon on screen",
     "horizonDistanceM": "Horizon distance",
@@ -103,6 +103,7 @@
     "transitionFraction": "Transition",
     "curveExponent": "Curve profile",
     "drama": "Drama",
+    "lateralConvergence": "Horizon perspective",
     "userPointScreenFraction": "User point on screen",
     "backward": "Bend behind too",
     "flatM": "Flat zone",
@@ -122,7 +123,7 @@
   },
   "view": {
     "title": "View",
-    "bent": "Bent World",
+    "bent": "Himinrond",
     "classic3d": "Classic 3D",
     "flat": "Top-down"
   },

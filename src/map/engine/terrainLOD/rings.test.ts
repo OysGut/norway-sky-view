@@ -67,7 +67,9 @@ describe("planRings", () => {
   it("holes stay inside the unit square and job keys encode them", () => {
     for (const j of planRings(GALDHOPIGGEN)) {
       if (!j.hole) {
-        expect(j.jobKey).toBe(`${j.z}/${j.x}/${j.y}`);
+        // no hole → no "|h" segment, but a border tile may still carry a "|r" rim segment
+        expect(j.jobKey.startsWith(`${j.z}/${j.x}/${j.y}`)).toBe(true);
+        expect(j.jobKey).not.toContain("|h");
         continue;
       }
       expect(j.hole.u0).toBeGreaterThanOrEqual(0);
@@ -90,5 +92,50 @@ describe("planRings", () => {
     const farA = new Set(a.filter((k) => k.startsWith("9/")));
     const farB = moved.filter((j) => j.z === 9).map((j) => j.jobKey);
     expect(farB.filter((k) => farA.has(k)).length).toBeGreaterThan(15);
+  });
+
+  it("marks exactly the outer-boundary edges of each ring as rims against the next coarser ring", () => {
+    // A tiny synthetic 3×3 / 3×3 nesting so the outer ring of edges is easy to enumerate by hand.
+    const specs = [
+      { zoom: 13, ring: 1, segments: 8, skirtDepth: 1 },
+      { zoom: 11, ring: 1, segments: 8, skirtDepth: 1 },
+    ];
+    const jobs = planRings(GALDHOPIGGEN, specs);
+    const fine = jobs.filter((j) => j.z === 13);
+    const coarse = jobs.filter((j) => j.z === 11);
+
+    // a rim spec is only attached where at least one edge borders the coarser ring, so only the
+    // 8 border tiles of the 3×3 fine ring carry one; the single centre tile carries none.
+    for (const j of fine) {
+      if (j.rim) expect(j.rim.coarseZoom).toBe(11);
+    }
+    const withRim = fine.filter((j) => j.rim);
+    const withoutRim = fine.filter((j) => !j.rim);
+    expect(withRim.length).toBe(8);
+    expect(withoutRim.length).toBe(1);
+
+    // the outermost ring (z11 here, no z9) has no rims at all
+    for (const j of coarse) expect(j.rim).toBeUndefined();
+
+    // count rim edges: the 4 corners get 2 edges, the 4 sides get 1 edge each ⇒ 12 marks total.
+    const totalEdges = withRim.reduce((sum, j) => sum + Object.keys(j.rim?.edges ?? {}).length, 0);
+    expect(totalEdges).toBe(12);
+  });
+
+  it("includes the rim in jobKey and changes it when the ring moves", () => {
+    const jobs = planRings(GALDHOPIGGEN);
+    const rimmed = jobs.filter((j) => j.rim);
+    expect(rimmed.length).toBeGreaterThan(0);
+    for (const j of rimmed) {
+      expect(j.jobKey).toContain("|r");
+      expect(j.jobKey).toContain(`r${j.rim?.coarseZoom}:`);
+    }
+
+    // moving the user far enough re-centres a ring, changing which tiles sit on its outer
+    // border and hence which jobs carry a rim key.
+    const moved = planRings({ lon: GALDHOPIGGEN.lon + 1, lat: GALDHOPIGGEN.lat });
+    const rimKeysBefore = new Set(jobs.filter((j) => j.rim).map((j) => j.jobKey));
+    const rimKeysAfter = new Set(moved.filter((j) => j.rim).map((j) => j.jobKey));
+    expect(rimKeysAfter).not.toEqual(rimKeysBefore);
   });
 });

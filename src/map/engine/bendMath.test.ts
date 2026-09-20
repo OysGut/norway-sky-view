@@ -15,6 +15,8 @@ import {
   lookAheadForComposition,
   radiusForHorizon,
   screenFractionOfGround,
+  lateralDistanceFor,
+  lateralScale,
   softKnee,
   softKneeDerivative,
   unsoftKnee,
@@ -32,6 +34,7 @@ const P: BendParams = {
   drama: 0.35,
   thetaMax: Math.PI * 0.95,
   backwardWeight: 0,
+  lateralDistanceM: Infinity,
   enabled: 1,
   earthCurvature: 0,
 };
@@ -44,6 +47,7 @@ const FRACTIONS: BendFractions = {
   curveExponent: 1,
   drama: 0.35,
   backwardWeight: 0,
+  lateralConvergence: 0,
   physicalCurvature: false,
 };
 const VIEW: ViewComposition = { userPointScreenFraction: 0.3, fovDeg: 50 };
@@ -156,10 +160,45 @@ describe("bendPoint", () => {
     expect(q).toEqual({ x: 50, y: 120, z: -299, theta: 0 });
   });
 
-  it("never touches x", () => {
+  it("never touches x without lateral convergence", () => {
     for (const d of [10, 500, 5000, 100_000]) {
       expect(bendPoint(-1234.5, 0, -d, P).x).toBe(-1234.5);
     }
+  });
+
+  it("gathers far terrain toward a vanishing point with lateral convergence", () => {
+    const q = { ...P, lateralDistanceM: 1200 };
+    // flat zone and the knee: untouched (u = 0 → scale 1)
+    expect(bendPoint(-1234.5, 0, -100, q).x).toBe(-1234.5);
+    expect(bendPoint(-1234.5, 0, -(q.flatM + 1e-6), q).x).toBeCloseTo(-1234.5, 6);
+    // deep in the compressed zone: x · P / u → a point at azimuth ψ lands near P · tan ψ
+    const d = 200_000;
+    const x = d * Math.tan(Math.PI / 6); // ψ = 30°
+    const bent = bendPoint(x, 0, -d, q);
+    const u = softKnee(d - q.flatM - q.transitionM, q.transitionM);
+    expect(bent.x).toBeCloseTo(x * lateralScale(u, 1200), 6);
+    expect(bent.x / (1200 * Math.tan(Math.PI / 6))).toBeCloseTo(1, 2);
+    // continuous and monotone in depth
+    let prev = bendPoint(1000, 0, -300, q).x;
+    for (let dd = 320; dd < 20_000; dd += 20) {
+      const next = bendPoint(1000, 0, -dd, q).x;
+      expect(next).toBeLessThanOrEqual(prev + 1e-9);
+      prev = next;
+    }
+    // the enabled blend interpolates x like y and z
+    const half = bendPoint(x, 0, -d, { ...q, enabled: 0.5 });
+    expect(half.x).toBeCloseTo((x + bent.x) / 2, 6);
+  });
+
+  it("derives the lateral distance from camera height and the 0..1 setting", () => {
+    expect(lateralDistanceFor(1200, 0)).toBe(Infinity);
+    expect(lateralDistanceFor(1200, 1)).toBe(1200);
+    expect(lateralDistanceFor(1200, 0.5)).toBe(2400);
+    expect(lateralScale(5000, Infinity)).toBe(1);
+    expect(lateralScale(1200, 1200)).toBeCloseTo(0.5, 12);
+    expect(
+      bendParamsFromView(1200, { ...FRACTIONS, lateralConvergence: 0.6 }, VIEW).lateralDistanceM,
+    ).toBe(2000);
   });
 
   it("keeps terrain behind the user flat when backwardWeight is 0", () => {

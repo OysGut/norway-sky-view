@@ -79,7 +79,7 @@ export function applyBendToMaterial<M extends Material>(material: M, uniforms: B
     }
   };
   // Different shader text → different program cache key.
-  material.customProgramCacheKey = () => "himinrond-bend-v2";
+  material.customProgramCacheKey = () => "himinrond-bend-v3";
   material.needsUpdate = true;
   return material;
 }

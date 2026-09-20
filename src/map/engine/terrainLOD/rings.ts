@@ -12,6 +12,7 @@ import {
   type LonLatBounds,
   type TileKey,
 } from "../projection";
+import type { RimEdge } from "./mesher";
 
 export interface RingSpec {
   zoom: number;
@@ -23,11 +24,14 @@ export interface RingSpec {
   skirtDepth: number;
 }
 
+// Skirt depths: with rims and the shared pixel-centre oracle removing the
+// metres-scale ledges these used to hide, they only need to cover residual
+// float noise at the seams — small, zoom-scaled values are plenty.
 /** Default rings: ≈ 11.6 km / 93 km / 373 km across at 61° N. */
 export const DEFAULT_RINGS: readonly RingSpec[] = [
-  { zoom: 13, ring: 2, segments: 64, skirtDepth: 60 },
-  { zoom: 11, ring: 2, segments: 64, skirtDepth: 200 },
-  { zoom: 9, ring: 2, segments: 64, skirtDepth: 800 },
+  { zoom: 13, ring: 2, segments: 64, skirtDepth: 5 },
+  { zoom: 11, ring: 2, segments: 64, skirtDepth: 10 },
+  { zoom: 9, ring: 2, segments: 64, skirtDepth: 20 },
 ];
 
 export interface Hole {
@@ -37,23 +41,38 @@ export interface Hole {
   v1: number;
 }
 
+/** Which edges of a tile are pinned to the next coarser ring's own mesh, and that ring's zoom/segments. */
+export interface RimSpec {
+  coarseZoom: number;
+  coarseSegments: number;
+  edges: Partial<Record<RimEdge, true>>;
+}
+
 export interface TileJob extends TileKey {
   segments: number;
   skirtDepth: number;
   bounds: LonLatBounds;
   hole?: Hole | undefined;
-  /** Stable identity including the hole, so a changed hole re-meshes the tile. */
+  /** Edges bordering the next coarser ring, to be pinned to its surface. Absent for the outermost ring. */
+  rim?: RimSpec | undefined;
+  /** Stable identity including the hole and rim, so either changing re-meshes the tile. */
   jobKey: string;
 }
 
-function ringTiles(center: TileKey, ring: number): TileKey[] {
+interface RingTile extends TileKey {
+  /** Offset from the ring's centre tile, in tiles. */
+  dx: number;
+  dy: number;
+}
+
+function ringTiles(center: TileKey, ring: number): RingTile[] {
   const n = 2 ** center.z;
-  const out: TileKey[] = [];
+  const out: RingTile[] = [];
   for (let dy = -ring; dy <= ring; dy++) {
     const y = center.y + dy;
     if (y < 0 || y >= n) continue;
     for (let dx = -ring; dx <= ring; dx++) {
-      out.push({ z: center.z, x: (((center.x + dx) % n) + n) % n, y });
+      out.push({ z: center.z, x: (((center.x + dx) % n) + n) % n, y, dx, dy });
     }
   }
   return out;
@@ -106,13 +125,36 @@ function holeKey(hole: Hole | undefined): string {
   return `|h${r(hole.u0)},${r(hole.v0)},${r(hole.u1)},${r(hole.v1)}`;
 }
 
+const RIM_EDGE_ORDER: readonly RimEdge[] = ["north", "south", "west", "east"];
+
+function rimKey(rim: RimSpec | undefined): string {
+  if (!rim) return "";
+  const letters = RIM_EDGE_ORDER.filter((e) => rim.edges[e])
+    .map((e) => e[0])
+    .join("");
+  return `|r${rim.coarseZoom}:${letters}`;
+}
+
+/** Rim edges for a tile at ring offset (dx, dy): the sides that face away from the ring's centre. */
+function rimEdgesFor(dx: number, dy: number, ring: number): Partial<Record<RimEdge, true>> {
+  const edges: Partial<Record<RimEdge, true>> = {};
+  if (dy === -ring) edges.north = true;
+  if (dy === ring) edges.south = true;
+  if (dx === -ring) edges.west = true;
+  if (dx === ring) edges.east = true;
+  return edges;
+}
+
 /** Plan every tile mesh needed around `center`, finest ring first. */
 export function planRings(center: LonLat, specs: readonly RingSpec[] = DEFAULT_RINGS): TileJob[] {
   const sorted = [...specs].sort((a, b) => b.zoom - a.zoom); // finest first
   const jobs: TileJob[] = [];
   let innerFootprint: LonLatBounds | null = null;
 
-  for (const spec of sorted) {
+  for (let s = 0; s < sorted.length; s++) {
+    const spec = sorted[s];
+    if (!spec) continue;
+    const coarser = sorted[s + 1]; // undefined for the outermost ring: nothing to stitch against
     const centerTile = lonLatToTile(center.lon, center.lat, spec.zoom);
     const tiles = ringTiles(centerTile, spec.ring);
     for (const t of tiles) {
@@ -123,13 +165,23 @@ export function planRings(center: LonLat, specs: readonly RingSpec[] = DEFAULT_R
         if (h === "full") continue;
         if (h) hole = h;
       }
+      let rim: RimSpec | undefined;
+      if (coarser) {
+        const edges = rimEdgesFor(t.dx, t.dy, spec.ring);
+        if (Object.keys(edges).length > 0) {
+          rim = { coarseZoom: coarser.zoom, coarseSegments: coarser.segments, edges };
+        }
+      }
       jobs.push({
-        ...t,
+        z: t.z,
+        x: t.x,
+        y: t.y,
         segments: spec.segments,
         skirtDepth: spec.skirtDepth,
         bounds,
         hole,
-        jobKey: `${t.z}/${t.x}/${t.y}${holeKey(hole)}`,
+        rim,
+        jobKey: `${t.z}/${t.x}/${t.y}${holeKey(hole)}${rimKey(rim)}`,
       });
     }
     innerFootprint = unionBounds(tiles);

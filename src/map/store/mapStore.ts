@@ -54,6 +54,8 @@ export interface BendSettings {
   drama: number;
   /** 0 = terrain behind the user stays flat. */
   backwardWeight: number;
+  /** 0..1: how strongly far terrain gathers toward a vanishing point (0 = off, 1 ≈ a normal camera). */
+  lateralConvergence: number;
   /** Physical earth curvature (refraction-corrected) in the unbent world. */
   physicalCurvature: boolean;
   /** 1 = Bent World, 0 = classic 3D; the scene eases toward it during mode transitions. */
@@ -132,6 +134,7 @@ const DEFAULT_BEND: BendSettings = {
   curveExponent: 1,
   drama: 0.35,
   backwardWeight: 0,
+  lateralConvergence: 0.6,
   physicalCurvature: true,
   enabled: 1,
   axisWeight: [1, 0],
@@ -208,6 +211,7 @@ export function sanitizeViewSettings(raw: unknown, fallback: ViewSettings): View
       curveExponent: num(b["curveExponent"], fb.curveExponent, 0.1, 5),
       drama: num(b["drama"], fb.drama, 0, 1),
       backwardWeight: num(b["backwardWeight"], fb.backwardWeight, 0, 1),
+      lateralConvergence: num(b["lateralConvergence"], fb.lateralConvergence, 0, 1),
       physicalCurvature:
         typeof b["physicalCurvature"] === "boolean" ? b["physicalCurvature"] : fb.physicalCurvature,
       enabled: num(b["enabled"], fb.enabled, 0, 1),

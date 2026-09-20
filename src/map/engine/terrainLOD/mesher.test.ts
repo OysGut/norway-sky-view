@@ -1,6 +1,7 @@
 // LOCKED: engine code — modify only on explicit engine tasks.
 import { describe, expect, it } from "vitest";
 
+import { HeightOracle, type OracleTile, type TileLoader } from "./heightOracle";
 import { buildTerrainMesh, meshBytes } from "./mesher";
 
 function flat(w: number, h: number, value: number): Float32Array {
@@ -140,5 +141,136 @@ describe("buildTerrainMesh", () => {
       segments: 2,
     });
     expect(meshBytes(m)).toBe(9 * 3 * 4 + 9 * 3 * 4 + 9 * 2 * 4 + 24 * 4);
+  });
+
+  it("samples heights through a heightAt(u, v) callback instead of a raw grid", () => {
+    const m = buildTerrainMesh({
+      heightAt: (u, v) => 100 * u + 10 * v,
+      widthM: 100,
+      depthM: 100,
+      segments: 2,
+    });
+    // vertex (i=2, j=1) → u=1, v=0.5 → 100 + 5 = 105
+    expect(m.positions[(1 * 3 + 2) * 3 + 1]).toBeCloseTo(105, 9);
+  });
+
+  function makeOracleTile(size: number, valueAt: (i: number, j: number) => number): OracleTile {
+    const heights = new Float32Array(size * size);
+    for (let j = 0; j < size; j++) {
+      for (let i = 0; i < size; i++) heights[j * size + i] = valueAt(i, j);
+    }
+    return { width: size, height: size, heights };
+  }
+
+  it("gives two adjacent same-zoom tiles bit-identical heights along their shared edge", async () => {
+    const Z = 6;
+    const S = 4; // mesh quads per side
+    const PX = 8; // pixels per tile
+    const tileA = makeOracleTile(PX, (i, j) => 100 + i * 3 + j * 7);
+    const tileB = makeOracleTile(PX, (i, j) => 250 + i * 2 + j * 5);
+    // Neighbours one step further out are only needed to resolve tile A's own
+    // west edge and tile B's own east edge (each mesh's full n×n grid touches
+    // its own outer boundary too); their exact values don't matter here.
+    const filler = makeOracleTile(PX, () => 0);
+    const loader: TileLoader = (z, x, y) => {
+      if (z !== Z) return Promise.reject(new Error(`unexpected tile ${z}/${x}/${y}`));
+      if (y === 0 && x === 10) return Promise.resolve(tileA);
+      if (y === 0 && x === 11) return Promise.resolve(tileB);
+      return Promise.resolve(filler); // any other neighbour touched by the grid's own outer boundary
+    };
+
+    async function meshForTileX(x: number) {
+      const oracle = new HeightOracle(Z, loader, PX);
+      const n = S + 1;
+      const grid = new Float32Array(n * n);
+      for (let j = 0; j < n; j++) {
+        for (let i = 0; i < n; i++) {
+          const gx = x * PX + (i / S) * PX;
+          const gy = 0 * PX + (j / S) * PX;
+          grid[j * n + i] = await oracle.height(gx, gy);
+        }
+      }
+      const heightAt = (u: number, v: number): number =>
+        grid[Math.round(v * S) * n + Math.round(u * S)] ?? 0;
+      return buildTerrainMesh({ heightAt, widthM: 100, depthM: 100, segments: S });
+    }
+
+    const meshA = await meshForTileX(10); // tile A is west of tile B
+    const meshB = await meshForTileX(11);
+    const n = S + 1;
+    for (let j = 0; j < n; j++) {
+      const aEast = meshA.positions[(j * n + S) * 3 + 1];
+      const bWest = meshB.positions[(j * n + 0) * 3 + 1];
+      expect(aEast).toBe(bWest); // both went through the same H_z formula on the same global inputs
+    }
+  });
+
+  it("pins a fine tile's rim edge exactly onto the coarser mesh's piecewise-linear edge", () => {
+    // A coarse mesh built from a smooth (non-linear away from its own edge) height field.
+    const coarseS = 4;
+    const coarseMesh = buildTerrainMesh({
+      heightAt: (u, v) => 1000 * u + 300 * v * v,
+      widthM: 1000,
+      depthM: 1000,
+      segments: coarseS,
+    });
+    const coarseEdge = Array.from(
+      { length: coarseS + 1 },
+      (_unused, i) => coarseMesh.positions[i * 3 + 1] ?? 0,
+    );
+
+    const fineS = 8; // this fine tile's north edge spans the whole coarse edge (quads = coarseS, ratio 2)
+    const fineMesh = buildTerrainMesh({
+      heightAt: () => -12345, // must be fully overridden by the rim on the north edge
+      widthM: 500,
+      depthM: 500,
+      segments: fineS,
+      rim: { north: { quads: coarseS, heightAt: (k) => coarseEdge[k] ?? 0 } },
+    });
+
+    // Exactly at coarse vertices (fineS / coarseS = 2 fine vertices per coarse quad).
+    for (let k = 0; k <= coarseS; k++) {
+      const i = (k * fineS) / coarseS;
+      expect(fineMesh.positions[i * 3 + 1]).toBeCloseTo(coarseEdge[k] ?? 0, 9);
+    }
+    // And between coarse vertices: piecewise-linear interpolation, not the underlying quadratic.
+    for (let i = 0; i <= fineS; i++) {
+      const t = (i * coarseS) / fineS;
+      const k = Math.min(coarseS - 1, Math.floor(t));
+      const f = t - k;
+      const h0 = coarseEdge[k] ?? 0;
+      const h1 = coarseEdge[k + 1] ?? 0;
+      expect(fineMesh.positions[i * 3 + 1]).toBeCloseTo(h0 + (h1 - h0) * f, 9);
+    }
+  });
+
+  it("applies rim overrides to west/east edges indexed north→south", () => {
+    const coarseS = 4;
+    const coarseMesh = buildTerrainMesh({
+      heightAt: (u, v) => 50 * v + 400 * u * u,
+      widthM: 1000,
+      depthM: 1000,
+      segments: coarseS,
+    });
+    const n = coarseS + 1;
+    // west edge (i = 0) heights, north→south
+    const coarseWestEdge = Array.from(
+      { length: n },
+      (_unused, j) => coarseMesh.positions[j * n * 3 + 1] ?? 0,
+    );
+
+    const fineS = 8;
+    const fineMesh = buildTerrainMesh({
+      heightAt: () => -1,
+      widthM: 500,
+      depthM: 500,
+      segments: fineS,
+      rim: { west: { quads: coarseS, heightAt: (k) => coarseWestEdge[k] ?? 0 } },
+    });
+    const fn = fineS + 1;
+    for (let k = 0; k <= coarseS; k++) {
+      const j = (k * fineS) / coarseS;
+      expect(fineMesh.positions[j * fn * 3 + 1]).toBeCloseTo(coarseWestEdge[k] ?? 0, 9);
+    }
   });
 });

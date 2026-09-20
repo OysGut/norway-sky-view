@@ -3,6 +3,7 @@
 // Message protocol between the main thread and terrariumDecode.worker.ts.
 
 import type { TerrainMesh } from "../terrainLOD/mesher";
+import type { RimSpec } from "../terrainLOD/rings";
 
 export const TERRARIUM_TILE_URL =
   "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
@@ -37,6 +38,8 @@ export interface MeshRequest {
   segments: number;
   skirtDepth: number;
   hole?: { u0: number; v0: number; u1: number; v1: number } | undefined;
+  /** Edges bordering the next coarser ring; the worker pins them to that ring's own surface. */
+  rim?: RimSpec | undefined;
   /** Debug: generate deterministic synthetic hills instead of fetching (offline testing). */
   synthetic?: boolean;
 }

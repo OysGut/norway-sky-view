@@ -16,6 +16,7 @@ export const BEND_UNIFORM_NAMES = [
   "uBendDrama",
   "uBendThetaMax",
   "uBendBackward",
+  "uBendLateral",
   "uBendEnabled",
   "uEarthCurvature",
 ] as const;
@@ -23,6 +24,11 @@ export const BEND_UNIFORM_NAMES = [
 export type BendUniformName = (typeof BEND_UNIFORM_NAMES)[number];
 
 export type BendUniforms = Record<BendUniformName, { value: number }>;
+
+/** 1 / P for the shader (0 disables the lateral convergence). */
+function inverseLateral(p: BendParams): number {
+  return p.lateralDistanceM > 0 && p.lateralDistanceM < Infinity ? 1 / p.lateralDistanceM : 0;
+}
 
 export function createBendUniforms(p: BendParams): BendUniforms {
   return {
@@ -34,6 +40,7 @@ export function createBendUniforms(p: BendParams): BendUniforms {
     uBendDrama: { value: p.drama },
     uBendThetaMax: { value: p.thetaMax },
     uBendBackward: { value: p.backwardWeight },
+    uBendLateral: { value: inverseLateral(p) },
     uBendEnabled: { value: p.enabled },
     uEarthCurvature: { value: p.earthCurvature },
   };
@@ -49,6 +56,7 @@ export function updateBendUniforms(u: BendUniforms, p: BendParams): void {
   u.uBendDrama.value = p.drama;
   u.uBendThetaMax.value = p.thetaMax;
   u.uBendBackward.value = p.backwardWeight;
+  u.uBendLateral.value = inverseLateral(p);
   u.uBendEnabled.value = p.enabled;
   u.uEarthCurvature.value = p.earthCurvature;
 }
@@ -63,6 +71,7 @@ uniform float uBendCurveExponent;
 uniform float uBendDrama;
 uniform float uBendThetaMax;
 uniform float uBendBackward;
+uniform float uBendLateral; // 1 / P, 0 = off
 uniform float uBendEnabled;
 uniform float uEarthCurvature;
 
@@ -120,7 +129,9 @@ vec3 bendWorldTheta(vec3 p, out float thetaOut, out float sgnOut) {
   float yEff = p.y * pow(max(fPrime, 1e-6), uBendDrama);
   float rr = uBendRadius + yEff;
 
-  vec3 bent = vec3(p.x, rr * cos(theta) - uBendRadius, -(base + rr * sin(theta)) * sgn);
+  // lateral convergence: sideways offsets shrink with the depth into the compressed zone
+  float lateral = 1.0 / (1.0 + u * uBendLateral);
+  vec3 bent = vec3(p.x * lateral, rr * cos(theta) - uBendRadius, -(base + rr * sin(theta)) * sgn);
   thetaOut = theta * weight;
   return mix(p, bent, weight);
 }
