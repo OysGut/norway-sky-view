@@ -1,11 +1,14 @@
 // Client-only three.js canvas for the Bent World view. Loaded lazily by
 // BentWorldScene so nothing here ever runs on the server.
 //
-// Camera model (Knowledge → Architecture decisions): the camera is FIXED,
-// looking straight down; the world root rotates by heading and is translated so
-// that mapStore.userPoint sits at the origin. The camera target is pushed a
-// little forward so the user point sits in the lower part of the screen and the
-// bent horizon has room at the top. Scene axes: x = east, y = up, z = -north.
+// Camera model (Knowledge → Architecture decisions): the camera is FIXED over
+// the origin; the world root rotates by heading and is translated so that
+// mapStore.userPoint sits at the origin. In the Bent World the camera looks
+// straight down with its target pushed forward so the user point sits in the
+// lower part of the screen and the bent horizon has room at the top; in classic
+// 3D it tilts toward the horizon (cameraPitch) with the bend eased off. Mode
+// switches ease pitch, composition and bend strength so the map "straightens
+// out" instead of jumping. Scene axes: x = east, y = up, z = -north.
 //
 // Phase 1: real terrain (TerrainLayer: nested tile rings meshed from Terrarium
 // heights in workers, Kartverket topo textures, lit), bent by the shared chunk,
@@ -26,12 +29,14 @@ import {
 import { TerrainLayer } from "@/map/layers/TerrainLayer";
 import { effectiveCameraHeight, useMapStore } from "@/map/store/mapStore";
 
-import { CAMERA_FOV_DEG, lookAheadMeters } from "./cameraModel";
+import { CAMERA_FOV_DEG, cameraPose } from "./cameraModel";
 import { useKeyboardNavigation } from "./useKeyboardNavigation";
 
 const BACKGROUND = "#0A0E17";
 const ACCENT = "#3FE8B0";
 const EASE_RATE = 8; // 1 - exp(-dt * EASE_RATE)
+/** Slower easing for view-mode transitions (pitch, composition, bend strength). */
+const MODE_EASE_RATE = 3;
 /** Sun for the placeholder lighting until phase 2 drives it from suncalc. */
 const SUN_DIRECTION = new THREE.Vector3(-0.55, 0.7, 0.45).normalize();
 
@@ -42,11 +47,23 @@ interface ViewState {
   heading: number;
   /** eased terrain height under the user, metres a.s.l. */
   ground: number;
+  /** eased camera tilt from straight down, degrees */
+  pitch: number;
+  /** eased user point screen fraction */
+  composition: number;
+  /** eased bend strength 0..1 */
+  bendEnabled: number;
 }
 
-function ease(current: number, target: number, dt: number, snap: boolean): number {
+function ease(
+  current: number,
+  target: number,
+  dt: number,
+  snap: boolean,
+  rate: number = EASE_RATE,
+): number {
   if (snap) return target;
-  const k = 1 - Math.exp(-dt * EASE_RATE);
+  const k = 1 - Math.exp(-dt * rate);
   return current + (target - current) * k;
 }
 
@@ -57,7 +74,7 @@ function easeAngleDeg(current: number, target: number, dt: number, snap: boolean
   return (((current + delta * k) % 360) + 360) % 360;
 }
 
-/** Fixed camera above the origin; height eases toward the store, target is pushed forward. */
+/** Fixed camera above the origin; height, pitch and composition ease toward the store. */
 function CameraRig({
   view,
   reducedMotion,
@@ -76,10 +93,31 @@ function CameraRig({
       dt,
       reducedMotion,
     );
-    const ahead = lookAheadMeters(view.current.height, state.userPointScreenFraction);
-    camera.position.set(0, view.current.height, -ahead);
-    camera.up.set(0, 0, -1);
-    camera.lookAt(0, 0, -ahead);
+    view.current.pitch = ease(
+      view.current.pitch,
+      state.cameraPitch,
+      dt,
+      reducedMotion,
+      MODE_EASE_RATE,
+    );
+    view.current.composition = ease(
+      view.current.composition,
+      state.userPointScreenFraction,
+      dt,
+      reducedMotion,
+      MODE_EASE_RATE,
+    );
+    view.current.bendEnabled = ease(
+      view.current.bendEnabled,
+      state.bend.enabled,
+      dt,
+      reducedMotion,
+      MODE_EASE_RATE,
+    );
+    const pose = cameraPose(view.current.height, view.current.pitch, view.current.composition);
+    camera.position.set(...pose.position);
+    camera.up.set(...pose.up);
+    camera.lookAt(...pose.target);
   });
 
   return null;
@@ -101,12 +139,12 @@ function useBendUniforms(view: React.RefObject<ViewState>): BendUniforms {
   useFrame(() => {
     const s = useMapStore.getState();
     const composition = {
-      userPointScreenFraction: s.userPointScreenFraction,
+      userPointScreenFraction: view.current.composition,
       fovDeg: CAMERA_FOV_DEG,
     };
     updateBendUniforms(
       uniforms,
-      bendParamsFromView(view.current.height, s.bend, composition, s.bend.enabled),
+      bendParamsFromView(view.current.height, s.bend, composition, view.current.bendEnabled),
     );
   });
 
@@ -205,9 +243,15 @@ export default function BentWorldCanvas() {
     height: effectiveCameraHeight(initial),
     heading: initial.heading,
     ground: initial.groundHeight,
+    pitch: initial.cameraPitch,
+    composition: initial.userPointScreenFraction,
+    bendEnabled: initial.bend.enabled,
   });
-  const initialHeight = effectiveCameraHeight(initial);
-  const initialAhead = lookAheadMeters(initialHeight, initial.userPointScreenFraction);
+  const initialPose = cameraPose(
+    effectiveCameraHeight(initial),
+    initial.cameraPitch,
+    initial.userPointScreenFraction,
+  );
 
   return (
     <div ref={container} className="h-full w-full" tabIndex={0} aria-label="Bent World">
@@ -218,8 +262,8 @@ export default function BentWorldCanvas() {
           fov: CAMERA_FOV_DEG,
           near: 1,
           far: 400_000,
-          position: [0, initialHeight, -initialAhead],
-          up: [0, 0, -1],
+          position: initialPose.position,
+          up: initialPose.up,
         }}
       >
         <color attach="background" args={[BACKGROUND]} />

@@ -117,6 +117,23 @@
     "modeTerrain": "Follow terrain",
     "modeAbsolute": "Fixed altitude",
     "heightAboveGround": "Height above ground",
-    "altitude": "Altitude above sea level"
+    "altitude": "Altitude above sea level",
+    "pitch": "Camera tilt"
+  },
+  "view": {
+    "title": "View",
+    "bent": "Bent World",
+    "classic3d": "Classic 3D",
+    "flat": "Top-down"
+  },
+  "presets": {
+    "title": "Saved views",
+    "reset": "Reset",
+    "namePlaceholder": "Name this view",
+    "save": "Save",
+    "update": "Update",
+    "empty": "No saved views yet. Set the map up the way you like it, give it a name and save.",
+    "apply": "Apply view {{name}}",
+    "delete": "Delete view {{name}}"
   }
 }

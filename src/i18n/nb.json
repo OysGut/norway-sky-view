@@ -117,6 +117,23 @@
     "modeTerrain": "Følg terrenget",
     "modeAbsolute": "Fast høyde over havet",
     "heightAboveGround": "Høyde over bakken",
-    "altitude": "Høyde over havet"
+    "altitude": "Høyde over havet",
+    "pitch": "Kameravinkel"
+  },
+  "view": {
+    "title": "Visning",
+    "bent": "Bøyd verden",
+    "classic3d": "Klassisk 3D",
+    "flat": "Flatt ovenfra"
+  },
+  "presets": {
+    "title": "Lagrede visninger",
+    "reset": "Nullstill",
+    "namePlaceholder": "Gi visningen et navn",
+    "save": "Lagre",
+    "update": "Oppdater",
+    "empty": "Ingen lagrede visninger enda. Still inn kartet slik du vil ha det, gi det et navn og lagre.",
+    "apply": "Bruk visningen {{name}}",
+    "delete": "Slett visningen {{name}}"
   }
 }

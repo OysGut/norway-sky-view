@@ -2,13 +2,15 @@ import { useTranslation } from "react-i18next";
 
 import { Slider } from "@/components/ui/slider";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { formatMeters } from "@/i18n/format";
+import { formatMeters, formatNumber } from "@/i18n/format";
 import { useLanguage } from "@/i18n/useLanguage";
 import {
   CAMERA_ALTITUDE_MAX,
   CAMERA_ALTITUDE_MIN,
   CAMERA_HEIGHT_MAX,
   CAMERA_HEIGHT_MIN,
+  CAMERA_PITCH_MAX,
+  CAMERA_PITCH_MIN,
   useMapStore,
   type CameraMode,
 } from "@/map/store/mapStore";
@@ -28,7 +30,7 @@ function fromSlider(s: number, min: number, max: number): number {
   return min * Math.pow(max / min, s / STEPS);
 }
 
-/** Camera height mode (follow terrain / fixed altitude) and the active height. */
+/** Camera height mode (follow terrain / fixed altitude), the active height and the tilt. */
 export function CameraControls({ className }: CameraControlsProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
@@ -38,6 +40,8 @@ export function CameraControls({ className }: CameraControlsProps) {
   const setCameraMode = useMapStore((s) => s.setCameraMode);
   const setCameraHeight = useMapStore((s) => s.setCameraHeight);
   const setCameraAltitude = useMapStore((s) => s.setCameraAltitude);
+  const cameraPitch = useMapStore((s) => s.cameraPitch);
+  const setCameraPitch = useMapStore((s) => s.setCameraPitch);
 
   const absolute = mode === "absolute";
   const min = absolute ? CAMERA_ALTITUDE_MIN : CAMERA_HEIGHT_MIN;
@@ -94,6 +98,22 @@ export function CameraControls({ className }: CameraControlsProps) {
               else setCameraHeight(v);
             }}
             aria-label={label}
+          />
+        </label>
+        <label className="grid gap-1.5 text-xs">
+          <span className="flex items-center justify-between text-muted-foreground">
+            <span>{t("camera.pitch")}</span>
+            <span className="tabular text-foreground">{`${formatNumber(cameraPitch, 0, language)}°`}</span>
+          </span>
+          <Slider
+            min={CAMERA_PITCH_MIN}
+            max={CAMERA_PITCH_MAX}
+            step={1}
+            value={[cameraPitch]}
+            onValueChange={([v]) => {
+              if (v !== undefined) setCameraPitch(v);
+            }}
+            aria-label={t("camera.pitch")}
           />
         </label>
       </div>

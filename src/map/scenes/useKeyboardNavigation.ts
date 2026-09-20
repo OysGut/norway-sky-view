@@ -22,6 +22,22 @@ const NAV_KEYS = new Set([
   "arrowright",
 ]);
 
+/**
+ * True when the focused element should keep the key for itself: text fields take
+ * every key; buttons, sliders and toggle groups take the arrow keys (roving focus,
+ * slider steps) but let WASD/Q/E through so the map still moves after a click.
+ */
+function isTypingOrAdjusting(active: Element | null, key: string): boolean {
+  if (!active || active === document.body) return false;
+  const tag = active.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if ((active as HTMLElement).isContentEditable) return true;
+  if (!key.startsWith("arrow")) return false;
+  if (tag === "BUTTON") return true;
+  const role = active.getAttribute("role");
+  return role === "slider" || role === "radio" || role === "switch" || role === "tab";
+}
+
 export interface KeyboardNavigation {
   /** Call once per frame with the frame delta in seconds. */
   step: (dt: number) => void;
@@ -36,8 +52,7 @@ export function useKeyboardNavigation(
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
       if (!NAV_KEYS.has(key)) return;
-      const active = document.activeElement;
-      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+      if (isTypingOrAdjusting(document.activeElement, key)) return;
       pressed.current.add(key);
       event.preventDefault();
     };
