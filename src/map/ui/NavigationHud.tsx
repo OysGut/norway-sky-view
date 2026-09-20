@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 
 import { formatCoordinate, formatMeters, formatNumber } from "@/i18n/format";
 import { useLanguage } from "@/i18n/useLanguage";
-import { useMapStore } from "@/map/store/mapStore";
+import { effectiveCameraHeight, useMapStore } from "@/map/store/mapStore";
 
 import { GlassPanel } from "./GlassPanel";
 import { Readout } from "./Readout";
@@ -16,8 +16,9 @@ export function NavigationHud({ className }: NavigationHudProps) {
   const { language } = useLanguage();
   const userPoint = useMapStore((s) => s.userPoint);
   const heading = useMapStore((s) => s.heading);
-  const cameraHeight = useMapStore((s) => s.cameraHeight);
+  const cameraHeight = useMapStore(effectiveCameraHeight);
   const groundHeight = useMapStore((s) => s.groundHeight);
+  const altitude = cameraHeight + groundHeight;
 
   return (
     <GlassPanel padding="sm" className={className}>
@@ -27,8 +28,9 @@ export function NavigationHud({ className }: NavigationHudProps) {
           value={formatCoordinate(userPoint.lat, userPoint.lon, language)}
           size="sm"
         />
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <Readout label={t("hud.ground")} value={formatMeters(groundHeight, language)} size="sm" />
+          <Readout label={t("hud.altitude")} value={formatMeters(altitude, language)} size="sm" />
           <Readout
             label={t("hud.heading")}
             value={`${formatNumber(heading, 0, language)}°`}

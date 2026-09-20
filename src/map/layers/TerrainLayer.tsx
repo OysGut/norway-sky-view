@@ -73,6 +73,7 @@ class TerrainManager {
       this.groundTile = null;
       this.groundTileKey = "";
       this.groundRequestKey = "";
+      this.groundRetryAt = 0;
       for (const key of [...this.tiles.keys()]) this.drop(key);
     }
     this.trackGround(userPoint);

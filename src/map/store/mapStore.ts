@@ -3,6 +3,18 @@ import { create } from "zustand";
 
 export type MapMode = "bent" | "classic3d" | "2d";
 
+/**
+ * How the camera height is controlled:
+ *  - "terrain": a fixed distance above the ground under the user (follows the terrain)
+ *  - "absolute": a fixed altitude above sea level, whatever the terrain does
+ */
+export type CameraMode = "terrain" | "absolute";
+
+export const CAMERA_HEIGHT_MIN = 200;
+export const CAMERA_HEIGHT_MAX = 20_000;
+export const CAMERA_ALTITUDE_MIN = 200;
+export const CAMERA_ALTITUDE_MAX = 20_000;
+
 export interface UserPoint {
   lat: number;
   lon: number;
@@ -39,8 +51,11 @@ export interface BendSettings {
 export interface MapState {
   userPoint: UserPoint;
   heading: number;
-  /** Camera height above the ground at the user point, metres. */
+  /** Camera height above the ground at the user point, metres (used in "terrain" mode). */
   cameraHeight: number;
+  /** Camera altitude above sea level, metres (used in "absolute" mode). */
+  cameraAltitude: number;
+  cameraMode: CameraMode;
   /** Terrain height at the user point, metres above sea level (sampled by the terrain layer). */
   groundHeight: number;
   time: Date;
@@ -53,6 +68,8 @@ export interface MapState {
   setUserPoint: (userPoint: UserPoint) => void;
   setHeading: (heading: number) => void;
   setCameraHeight: (cameraHeight: number) => void;
+  setCameraAltitude: (cameraAltitude: number) => void;
+  setCameraMode: (cameraMode: CameraMode) => void;
   setGroundHeight: (groundHeight: number) => void;
   setTime: (time: Date) => void;
   setFollowNow: (followNow: boolean) => void;
@@ -63,11 +80,30 @@ export interface MapState {
   setLayers: (layers: Record<string, boolean>) => void;
 }
 
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * Camera height above the ground under the user for the current mode. In absolute
+ * mode the camera never goes below CAMERA_HEIGHT_MIN over the terrain.
+ */
+export function effectiveCameraHeight(
+  s: Pick<MapState, "cameraMode" | "cameraHeight" | "cameraAltitude" | "groundHeight">,
+): number {
+  if (s.cameraMode === "absolute") {
+    return clamp(s.cameraAltitude - s.groundHeight, CAMERA_HEIGHT_MIN, CAMERA_HEIGHT_MAX);
+  }
+  return s.cameraHeight;
+}
+
 export const useMapStore = create<MapState>((set) => ({
   // Galdhøpiggen
   userPoint: { lat: 61.6364, lon: 8.3125 },
   heading: 0,
   cameraHeight: 1200,
+  cameraAltitude: 3500,
+  cameraMode: "terrain",
   groundHeight: 0,
   time: new Date(),
   followNow: true,
@@ -88,7 +124,11 @@ export const useMapStore = create<MapState>((set) => ({
   layers: {},
   setUserPoint: (userPoint) => set({ userPoint }),
   setHeading: (heading) => set({ heading }),
-  setCameraHeight: (cameraHeight) => set({ cameraHeight }),
+  setCameraHeight: (cameraHeight) =>
+    set({ cameraHeight: clamp(cameraHeight, CAMERA_HEIGHT_MIN, CAMERA_HEIGHT_MAX) }),
+  setCameraAltitude: (cameraAltitude) =>
+    set({ cameraAltitude: clamp(cameraAltitude, CAMERA_ALTITUDE_MIN, CAMERA_ALTITUDE_MAX) }),
+  setCameraMode: (cameraMode) => set({ cameraMode }),
   setGroundHeight: (groundHeight) => set({ groundHeight }),
   setTime: (time) => set({ time }),
   setFollowNow: (followNow) => set({ followNow }),

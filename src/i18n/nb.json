@@ -89,6 +89,7 @@
   "hud": {
     "position": "Posisjon",
     "ground": "Terreng",
+    "altitude": "Kamera over havet",
     "heading": "Retning",
     "height": "Kamerahøyde",
     "keys": "WASD flytt · Q/E roter · hjul høyde"
@@ -110,5 +111,12 @@
     "curvature": "Jordkrumning (fysisk)",
     "synthetic": "Syntetisk terreng (test)",
     "wireframe": "Vis rutenett (wireframe)"
+  },
+  "camera": {
+    "title": "Kamera",
+    "modeTerrain": "Følg terrenget",
+    "modeAbsolute": "Fast høyde over havet",
+    "heightAboveGround": "Høyde over bakken",
+    "altitude": "Høyde over havet"
   }
 }

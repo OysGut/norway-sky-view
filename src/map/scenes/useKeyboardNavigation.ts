@@ -5,10 +5,8 @@
 import { useEffect, useRef } from "react";
 
 import { enuToLonLat } from "@/map/engine/projection";
-import { useMapStore } from "@/map/store/mapStore";
+import { effectiveCameraHeight, useMapStore } from "@/map/store/mapStore";
 
-export const CAMERA_HEIGHT_MIN = 200;
-export const CAMERA_HEIGHT_MAX = 20_000;
 const ROTATE_DEG_PER_SECOND = 60;
 
 const NAV_KEYS = new Set([
@@ -63,10 +61,10 @@ export function useKeyboardNavigation(
     if (!element) return;
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
-      const { cameraHeight, setCameraHeight } = useMapStore.getState();
+      const s = useMapStore.getState();
       const factor = event.deltaY > 0 ? 1.1 : 0.9;
-      const next = Math.min(CAMERA_HEIGHT_MAX, Math.max(CAMERA_HEIGHT_MIN, cameraHeight * factor));
-      setCameraHeight(next);
+      if (s.cameraMode === "absolute") s.setCameraAltitude(s.cameraAltitude * factor);
+      else s.setCameraHeight(s.cameraHeight * factor);
     };
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
@@ -96,7 +94,7 @@ export function useKeyboardNavigation(
     if (keys.has("a")) strafe -= 1;
     if (forward === 0 && strafe === 0) return;
 
-    const speed = state.cameraHeight * 0.5; // m/s
+    const speed = effectiveCameraHeight(state) * 0.5; // m/s
     const length = Math.hypot(forward, strafe) || 1;
     const distance = (speed * dt) / length;
     const headingRad = (state.heading * Math.PI) / 180;

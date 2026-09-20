@@ -6,7 +6,7 @@ import { formatMeters, formatNumber } from "@/i18n/format";
 import { useLanguage } from "@/i18n/useLanguage";
 import { bendParamsFromView } from "@/map/engine/bendMath";
 import { CAMERA_FOV_DEG, SYNTHETIC_LAYER, WIREFRAME_LAYER } from "@/map/scenes/cameraModel";
-import { useMapStore, type BendSettings } from "@/map/store/mapStore";
+import { effectiveCameraHeight, useMapStore, type BendSettings } from "@/map/store/mapStore";
 
 import { GlassPanel } from "./GlassPanel";
 import { Readout } from "./Readout";
@@ -84,7 +84,7 @@ export function BendControls({ className }: BendControlsProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
   const bend = useMapStore((s) => s.bend);
-  const cameraHeight = useMapStore((s) => s.cameraHeight);
+  const cameraHeight = useMapStore(effectiveCameraHeight);
   const userPointScreenFraction = useMapStore((s) => s.userPointScreenFraction);
   const setBend = useMapStore((s) => s.setBend);
   const setUserPointScreenFraction = useMapStore((s) => s.setUserPointScreenFraction);

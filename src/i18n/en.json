@@ -89,6 +89,7 @@
   "hud": {
     "position": "Position",
     "ground": "Ground",
+    "altitude": "Camera a.s.l.",
     "heading": "Heading",
     "height": "Camera height",
     "keys": "WASD move · Q/E rotate · wheel height"
@@ -110,5 +111,12 @@
     "curvature": "Earth curvature (physical)",
     "synthetic": "Synthetic terrain (test)",
     "wireframe": "Show wireframe"
+  },
+  "camera": {
+    "title": "Camera",
+    "modeTerrain": "Follow terrain",
+    "modeAbsolute": "Fixed altitude",
+    "heightAboveGround": "Height above ground",
+    "altitude": "Altitude above sea level"
   }
 }

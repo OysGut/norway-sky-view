@@ -24,7 +24,7 @@ import {
   type BendUniforms,
 } from "@/map/engine/shaders/bend.glsl";
 import { TerrainLayer } from "@/map/layers/TerrainLayer";
-import { useMapStore } from "@/map/store/mapStore";
+import { effectiveCameraHeight, useMapStore } from "@/map/store/mapStore";
 
 import { CAMERA_FOV_DEG, lookAheadMeters } from "./cameraModel";
 import { useKeyboardNavigation } from "./useKeyboardNavigation";
@@ -70,7 +70,12 @@ function CameraRig({
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.1);
     const state = useMapStore.getState();
-    view.current.height = ease(view.current.height, state.cameraHeight, dt, reducedMotion);
+    view.current.height = ease(
+      view.current.height,
+      effectiveCameraHeight(state),
+      dt,
+      reducedMotion,
+    );
     const ahead = lookAheadMeters(view.current.height, state.userPointScreenFraction);
     camera.position.set(0, view.current.height, -ahead);
     camera.up.set(0, 0, -1);
@@ -89,7 +94,7 @@ function useBendUniforms(view: React.RefObject<ViewState>): BendUniforms {
       fovDeg: CAMERA_FOV_DEG,
     };
     return createBendUniforms(
-      bendParamsFromView(s.cameraHeight, s.bend, composition, s.bend.enabled),
+      bendParamsFromView(effectiveCameraHeight(s), s.bend, composition, s.bend.enabled),
     );
   }, []);
 
@@ -197,11 +202,12 @@ export default function BentWorldCanvas() {
   const origin = useMemo<LonLat>(() => ({ ...useMapStore.getState().userPoint }), []);
   const initial = useMapStore.getState();
   const view = useRef<ViewState>({
-    height: initial.cameraHeight,
+    height: effectiveCameraHeight(initial),
     heading: initial.heading,
     ground: initial.groundHeight,
   });
-  const initialAhead = lookAheadMeters(initial.cameraHeight, initial.userPointScreenFraction);
+  const initialHeight = effectiveCameraHeight(initial);
+  const initialAhead = lookAheadMeters(initialHeight, initial.userPointScreenFraction);
 
   return (
     <div ref={container} className="h-full w-full" tabIndex={0} aria-label="Bent World">
@@ -212,7 +218,7 @@ export default function BentWorldCanvas() {
           fov: CAMERA_FOV_DEG,
           near: 1,
           far: 400_000,
-          position: [0, initial.cameraHeight, -initialAhead],
+          position: [0, initialHeight, -initialAhead],
           up: [0, 0, -1],
         }}
       >
