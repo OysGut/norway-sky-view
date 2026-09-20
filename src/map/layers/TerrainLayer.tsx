@@ -14,7 +14,14 @@ import { lonLatToEnu, lonLatToTilePixel, type LonLat } from "@/map/engine/projec
 import { sampleBilinear } from "@/map/engine/terrain/terrarium";
 import { applyBendToMaterial } from "@/map/engine/shaders/bendMaterial";
 import type { BendUniforms } from "@/map/engine/shaders/bend.glsl";
-import { planRings, type TileJob } from "@/map/engine/terrainLOD/rings";
+import {
+  DEFAULT_RINGS,
+  FAST_SPEED_MPS,
+  planRings,
+  ringsForSpeed,
+  type RingSpec,
+  type TileJob,
+} from "@/map/engine/terrainLOD/rings";
 import { requestMesh, requestTile } from "@/map/engine/workers/terrariumClient";
 import type { DecodedTile } from "@/map/engine/workers/terrariumProtocol";
 import { SYNTHETIC_LAYER, WIREFRAME_LAYER } from "@/map/scenes/cameraModel";
@@ -24,6 +31,9 @@ const PLACEHOLDER = new THREE.Color("#3a4756");
 const SYNTHETIC_TINT = new THREE.Color("#8fa38a");
 /** Re-plan when the user has moved this far (metres) since the last plan. */
 const REPLAN_DISTANCE_M = 400;
+/** Smoothing of the speed estimate (per second). */
+const SPEED_SMOOTHING = 6;
+
 /** Concurrent mesh requests in flight. */
 const MAX_IN_FLIGHT = 6;
 /** Zoom of the tile used to sample the ground height under the user. */
@@ -68,6 +78,9 @@ class TerrainManager {
   private inFlight = 0;
   private lastPlanAt: LonLat | null = null;
   private synthetic = false;
+  private lastUpdateAt: { point: LonLat; time: number } | null = null;
+  private speedMps = 0;
+  private activeSpecs: readonly RingSpec[] = DEFAULT_RINGS;
   /** Height tile under the user for ground sampling. */
   private groundTile: DecodedTile | null = null;
   private groundTileKey = "";
@@ -75,12 +88,23 @@ class TerrainManager {
   private groundRetryAt = 0;
 
   constructor(
-    private readonly origin: LonLat,
+    private origin: LonLat,
     private readonly uniforms: BendUniforms,
     private readonly maxAnisotropy: number,
   ) {
     this.group.name = "terrain";
     this.textureLoader.setCrossOrigin("anonymous");
+  }
+
+  /** Move the ENU origin: every tile is placed relative to it, so all tiles are rebuilt. */
+  rebase(origin: LonLat): void {
+    this.origin = origin;
+    this.lastPlanAt = null;
+    for (const key of [...this.tiles.keys()]) this.drop(key);
+  }
+
+  get currentOrigin(): LonLat {
+    return this.origin;
   }
 
   /** Called every frame; cheap unless a re-plan is due. */
@@ -94,10 +118,17 @@ class TerrainManager {
       this.groundRetryAt = 0;
       for (const key of [...this.tiles.keys()]) this.drop(key);
     }
-    this.trackGround(userPoint);
+    this.trackSpeed(userPoint);
+    const specs = ringsForSpeed(this.speedMps);
+    if (specs !== this.activeSpecs) {
+      this.activeSpecs = specs;
+      this.lastPlanAt = null; // the ring set changed: plan again right away
+    }
+    // no point sampling the ground while flying over it at hundreds of km/s
+    if (this.speedMps < FAST_SPEED_MPS) this.trackGround(userPoint);
     if (this.lastPlanAt) {
       const d = lonLatToEnu(this.lastPlanAt, userPoint);
-      if (Math.hypot(d.east, d.north) < REPLAN_DISTANCE_M) {
+      if (Math.hypot(d.east, d.north) < this.replanDistance()) {
         this.pump();
         this.applyWireframe(wireframe);
         return;
@@ -107,6 +138,30 @@ class TerrainManager {
     this.plan(userPoint);
     this.pump();
     this.applyWireframe(wireframe);
+  }
+
+  /** Smoothed ground speed of the user point, metres per second. */
+  private trackSpeed(userPoint: LonLat): void {
+    const now = performance.now();
+    const last = this.lastUpdateAt;
+    if (last) {
+      const dt = Math.max(1e-3, (now - last.time) / 1000);
+      const d = lonLatToEnu(last.point, userPoint);
+      const instant = Math.hypot(d.east, d.north) / dt;
+      const k = 1 - Math.exp(-dt * SPEED_SMOOTHING);
+      this.speedMps += (instant - this.speedMps) * k;
+    }
+    this.lastUpdateAt = { point: { ...userPoint }, time: now };
+  }
+
+  /** Re-plan distance: 400 m normally, half a tile of the finest active ring when flying. */
+  private replanDistance(): number {
+    if (this.activeSpecs === DEFAULT_RINGS) return REPLAN_DISTANCE_M;
+    const finest = this.activeSpecs[0];
+    if (!finest) return REPLAN_DISTANCE_M;
+    // tile width at 61° N ≈ 40 075 km · cos(61°) / 2^z
+    const tileM = (40_075_000 * 0.4848) / 2 ** finest.zoom;
+    return Math.max(REPLAN_DISTANCE_M, tileM * 0.5);
   }
 
   /** Keep the height tile under the user available for ground sampling. */
@@ -142,7 +197,7 @@ class TerrainManager {
   }
 
   private plan(userPoint: LonLat): void {
-    const jobs = planRings(userPoint);
+    const jobs = planRings(userPoint, this.activeSpecs);
     const wanted = new Set(jobs.map((j) => j.jobKey));
     for (const key of [...this.tiles.keys()]) if (!wanted.has(key)) this.drop(key);
     for (const job of jobs) {
@@ -321,10 +376,17 @@ class TerrainManager {
   }
 }
 
-export function TerrainLayer({ origin, uniforms }: { origin: LonLat; uniforms: BendUniforms }) {
+export function TerrainLayer({
+  origin,
+  uniforms,
+}: {
+  /** ENU origin; when the scene re-bases it, the layer rebuilds around the new origin. */
+  origin: React.RefObject<LonLat>;
+  uniforms: BendUniforms;
+}) {
   const gl = useThree((s) => s.gl);
   const manager = useMemo(
-    () => new TerrainManager(origin, uniforms, gl.capabilities.getMaxAnisotropy()),
+    () => new TerrainManager(origin.current, uniforms, gl.capabilities.getMaxAnisotropy()),
     [origin, uniforms, gl],
   );
   const groupRef = useRef<THREE.Group>(null);
@@ -333,6 +395,10 @@ export function TerrainLayer({ origin, uniforms }: { origin: LonLat; uniforms: B
     const parent = groupRef.current;
     if (!parent) return;
     parent.add(manager.group);
+    if (import.meta.env.DEV) {
+      // debugging aid: inspect tile state from the console / headless tests
+      (window as unknown as { __himinrondTerrain?: TerrainManager }).__himinrondTerrain = manager;
+    }
     return () => {
       parent.remove(manager.group);
       manager.dispose();
@@ -341,6 +407,7 @@ export function TerrainLayer({ origin, uniforms }: { origin: LonLat; uniforms: B
 
   useFrame(() => {
     const s = useMapStore.getState();
+    if (origin.current !== manager.currentOrigin) manager.rebase(origin.current);
     manager.update(
       s.userPoint,
       s.layers[SYNTHETIC_LAYER] === true,

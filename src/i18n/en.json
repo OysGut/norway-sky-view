@@ -92,7 +92,7 @@
     "altitude": "Camera a.s.l.",
     "heading": "Heading",
     "height": "Camera height",
-    "keys": "WASD move · Q/E rotate · wheel height"
+    "keys": "Drag to move · right-drag/Shift-drag to turn · WASD · Q/E · wheel for height"
   },
   "bend": {
     "title": "Himinrond",
@@ -136,5 +136,11 @@
     "empty": "No saved views yet. Set the map up the way you like it, give it a name and save.",
     "apply": "Apply view {{name}}",
     "delete": "Delete view {{name}}"
+  },
+  "search": {
+    "placeholder": "Search a place name and fly there …",
+    "loading": "Searching …",
+    "empty": "No matches.",
+    "error": "Search failed – try again."
   }
 }

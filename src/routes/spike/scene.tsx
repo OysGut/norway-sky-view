@@ -8,6 +8,7 @@ import { CameraControls } from "@/map/ui/CameraControls";
 import { GlassPanel } from "@/map/ui/GlassPanel";
 import { LanguageSwitch } from "@/map/ui/LanguageSwitch";
 import { NavigationHud } from "@/map/ui/NavigationHud";
+import { PlaceSearch } from "@/map/ui/PlaceSearch";
 import { PresetsPanel } from "@/map/ui/PresetsPanel";
 import { ThemeToggle } from "@/map/ui/ThemeToggle";
 import { ViewSwitcher } from "@/map/ui/ViewSwitcher";
@@ -31,6 +32,7 @@ function SpikeScenePage() {
         <BentWorldScene />
       </div>
       <div className="absolute left-4 top-4 z-10 flex w-72 flex-col gap-3">
+        <PlaceSearch />
         <NavigationHud />
         <CameraControls />
         <PresetsPanel />

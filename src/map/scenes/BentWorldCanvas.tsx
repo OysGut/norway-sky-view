@@ -27,14 +27,20 @@ import {
   type BendUniforms,
 } from "@/map/engine/shaders/bend.glsl";
 import { TerrainLayer } from "@/map/layers/TerrainLayer";
-import { effectiveCameraHeight, useMapStore } from "@/map/store/mapStore";
+import { CAMERA_ALTITUDE_MAX, effectiveCameraHeight, useMapStore } from "@/map/store/mapStore";
 
 import { CAMERA_FOV_DEG, cameraPose } from "./cameraModel";
+import { sampleFlight } from "./flight";
 import { useKeyboardNavigation } from "./useKeyboardNavigation";
+import { usePointerNavigation } from "./usePointerNavigation";
 
 const BACKGROUND = "#0A0E17";
 const ACCENT = "#3FE8B0";
 const EASE_RATE = 8; // 1 - exp(-dt * EASE_RATE)
+/** The ENU origin is moved to the user point once they are this far from it (keeps the local projection honest). */
+const REBASE_DISTANCE_M = 50_000;
+/** Terrain rings reach ≈ 370 km; give the far plane room for the horizon and the bent sky band. */
+const CAMERA_FAR_M = 1_500_000;
 /** Slower easing for view-mode transitions (pitch, composition, bend strength). */
 const MODE_EASE_RATE = 3;
 /** Sun for the placeholder lighting until phase 2 drives it from suncalc. */
@@ -174,7 +180,7 @@ function WorldRoot({
   reducedMotion,
   children,
 }: {
-  origin: LonLat;
+  origin: React.RefObject<LonLat>;
   view: React.RefObject<ViewState>;
   reducedMotion: boolean;
   children: React.ReactNode;
@@ -190,7 +196,7 @@ function WorldRoot({
     if (rotation.current) rotation.current.rotation.y = (view.current.heading * Math.PI) / 180;
     if (translation.current) {
       // the ground under the user becomes y = 0: the bend cylinder and the camera are anchored there
-      const offset = lonLatToEnu(origin, state.userPoint);
+      const offset = lonLatToEnu(origin.current, state.userPoint);
       translation.current.position.set(-offset.east, -view.current.ground, offset.north);
     }
   });
@@ -202,9 +208,41 @@ function WorldRoot({
   );
 }
 
-function NavigationDriver({ target }: { target: React.RefObject<HTMLDivElement | null> }) {
-  const nav = useKeyboardNavigation(target);
-  useFrame((_, rawDt) => nav.step(Math.min(rawDt, 0.1)));
+/** Keyboard, pointer and fly-to navigation, plus re-basing of the ENU origin after long moves. */
+function NavigationDriver({
+  target,
+  origin,
+}: {
+  target: React.RefObject<HTMLDivElement | null>;
+  origin: React.RefObject<LonLat>;
+}) {
+  const camera = useThree((s) => s.camera);
+  const keys = useKeyboardNavigation(target);
+  const pointer = usePointerNavigation(target, camera);
+  useFrame((_, rawDt) => {
+    const dt = Math.min(rawDt, 0.1);
+    const state = useMapStore.getState();
+    if (state.flight) {
+      const sample = sampleFlight(state.flight, performance.now());
+      state.setUserPoint(sample.point);
+      state.setHeading(sample.heading);
+      state.setCameraHeight(sample.height);
+      state.setCameraAltitude(Math.min(CAMERA_ALTITUDE_MAX, sample.height + state.groundHeight));
+      if (sample.done) state.cancelFlight();
+    }
+    // manual navigation runs every frame and cancels a flight when used
+    keys.step(dt);
+    pointer.step(dt);
+    const after = useMapStore.getState();
+    if (!after.flight) {
+      // far from the origin and not flying: make the user point the new origin (the terrain
+      // layer notices the change and rebuilds around it)
+      const d = lonLatToEnu(origin.current, after.userPoint);
+      if (Math.hypot(d.east, d.north) > REBASE_DISTANCE_M) {
+        origin.current = { ...after.userPoint };
+      }
+    }
+  });
   return null;
 }
 
@@ -213,7 +251,7 @@ function BentWorld({
   view,
   reducedMotion,
 }: {
-  origin: LonLat;
+  origin: React.RefObject<LonLat>;
   view: React.RefObject<ViewState>;
   reducedMotion: boolean;
 }) {
@@ -236,8 +274,9 @@ function BentWorld({
 export default function BentWorldCanvas() {
   const container = useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotion();
-  // The ENU origin is the user point at mount; navigation moves the world root.
-  const origin = useMemo<LonLat>(() => ({ ...useMapStore.getState().userPoint }), []);
+  // The ENU origin starts at the user point; navigation moves the world root, and the origin
+  // is re-based onto the user point after long moves (NavigationDriver).
+  const origin = useRef<LonLat>({ ...useMapStore.getState().userPoint });
   const initial = useMapStore.getState();
   const view = useRef<ViewState>({
     height: effectiveCameraHeight(initial),
@@ -254,21 +293,31 @@ export default function BentWorldCanvas() {
   );
 
   return (
-    <div ref={container} className="h-full w-full" tabIndex={0} aria-label="Bent World">
+    <div
+      ref={container}
+      className="h-full w-full touch-none select-none"
+      tabIndex={0}
+      aria-label="Himinrond"
+    >
       <Canvas
         dpr={[1, 2]}
-        gl={{ antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: true }}
+        gl={{
+          antialias: true,
+          powerPreference: "high-performance",
+          preserveDrawingBuffer: true,
+          logarithmicDepthBuffer: true,
+        }}
         camera={{
           fov: CAMERA_FOV_DEG,
           near: 1,
-          far: 400_000,
+          far: CAMERA_FAR_M,
           position: initialPose.position,
           up: initialPose.up,
         }}
       >
         <color attach="background" args={[BACKGROUND]} />
         <CameraRig view={view} reducedMotion={reducedMotion} />
-        <NavigationDriver target={container} />
+        <NavigationDriver target={container} origin={origin} />
         <BentWorld origin={origin} view={view} reducedMotion={reducedMotion} />
         <OriginCross />
       </Canvas>

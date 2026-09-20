@@ -92,7 +92,7 @@
     "altitude": "Kamera over havet",
     "heading": "Retning",
     "height": "Kamerahøyde",
-    "keys": "WASD flytt · Q/E roter · hjul høyde"
+    "keys": "Dra for å flytte · høyreklikk/Shift-dra for å snu · WASD · Q/E · hjul for høyde"
   },
   "bend": {
     "title": "Himinrond",
@@ -136,5 +136,11 @@
     "empty": "Ingen lagrede visninger enda. Still inn kartet slik du vil ha det, gi det et navn og lagre.",
     "apply": "Bruk visningen {{name}}",
     "delete": "Slett visningen {{name}}"
+  },
+  "search": {
+    "placeholder": "Søk stedsnavn og fly dit …",
+    "loading": "Søker …",
+    "empty": "Ingen treff.",
+    "error": "Søket feilet – prøv igjen."
   }
 }

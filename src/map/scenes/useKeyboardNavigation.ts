@@ -77,6 +77,7 @@ export function useKeyboardNavigation(
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       const s = useMapStore.getState();
+      s.cancelFlight();
       const factor = event.deltaY > 0 ? 1.1 : 0.9;
       if (s.cameraMode === "absolute") s.setCameraAltitude(s.cameraAltitude * factor);
       else s.setCameraHeight(s.cameraHeight * factor);
@@ -89,6 +90,7 @@ export function useKeyboardNavigation(
     const keys = pressed.current;
     if (keys.size === 0) return;
     const state = useMapStore.getState();
+    state.cancelFlight(); // manual navigation always wins over a flight
 
     // Rotation
     let turn = 0;

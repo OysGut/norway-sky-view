@@ -27,12 +27,34 @@ export interface RingSpec {
 // Skirt depths: with rims and the shared pixel-centre oracle removing the
 // metres-scale ledges these used to hide, they only need to cover residual
 // float noise at the seams — small, zoom-scaled values are plenty.
-/** Default rings: ≈ 11.6 km / 93 km / 373 km across at 61° N. */
+/** Default rings: ≈ 11.6 km / 46 km / 186 km / 745 km across at 61° N (the outer one carries the horizon). */
 export const DEFAULT_RINGS: readonly RingSpec[] = [
   { zoom: 13, ring: 2, segments: 64, skirtDepth: 5 },
   { zoom: 11, ring: 2, segments: 64, skirtDepth: 10 },
   { zoom: 9, ring: 2, segments: 64, skirtDepth: 20 },
+  { zoom: 7, ring: 2, segments: 64, skirtDepth: 40 },
 ];
+
+/** Speeds (m/s) above which the two finest, then the three finest, rings are dropped. */
+export const FAST_SPEED_MPS = 2_000;
+export const VERY_FAST_SPEED_MPS = 20_000;
+
+/**
+ * Ring specs to keep while the user moves at `speedMps`: all of them when slow, only the
+ * coarser ones when flying, so fine tiles are not fetched and discarded every frame.
+ */
+export function ringsForSpeed(
+  speedMps: number,
+  specs: readonly RingSpec[] = DEFAULT_RINGS,
+): readonly RingSpec[] {
+  const drop = speedMps > VERY_FAST_SPEED_MPS ? 3 : speedMps > FAST_SPEED_MPS ? 2 : 0;
+  if (drop === 0 || specs.length <= drop) return specs;
+  // while flying, a 3 × 3 block of the finest remaining ring is enough (the view is high up)
+  // and keeps each re-plan to a handful of tiles
+  return specs
+    .slice(drop)
+    .map((spec, i) => (i === 0 ? { ...spec, ring: Math.min(spec.ring, 1) } : spec));
+}
 
 export interface Hole {
   u0: number;

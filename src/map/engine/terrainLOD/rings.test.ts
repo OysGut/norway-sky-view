@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import { lonLatToTile, tileToLonLatBounds } from "../projection";
-import { DEFAULT_RINGS, holeFor, planRings } from "./rings";
+import { DEFAULT_RINGS, holeFor, planRings, ringsForSpeed } from "./rings";
 
 const GALDHOPIGGEN = { lon: 8.3125, lat: 61.6364 };
 
@@ -30,11 +30,11 @@ describe("holeFor", () => {
 });
 
 describe("planRings", () => {
-  it("plans three nested rings with the finest first and no fully covered coarse tiles", () => {
+  it("plans four nested rings with the finest first and no fully covered coarse tiles", () => {
     const jobs = planRings(GALDHOPIGGEN);
     const byZoom = new Map<number, typeof jobs>();
     for (const j of jobs) byZoom.set(j.z, [...(byZoom.get(j.z) ?? []), j]);
-    expect([...byZoom.keys()]).toEqual([13, 11, 9]);
+    expect([...byZoom.keys()]).toEqual([13, 11, 9, 7]);
     expect(byZoom.get(13)?.length).toBe(25);
     // a 5 × 5 z13 block can cover at most one whole z11 tile (4 × 4 z13) → 24 or 25 mid tiles
     expect(byZoom.get(11)?.length).toBeGreaterThanOrEqual(24);
@@ -44,6 +44,9 @@ describe("planRings", () => {
     expect(byZoom.get(9)?.length).toBeLessThanOrEqual(25);
     // and the coarse rings always carry holes under the finer block
     expect((byZoom.get(9) ?? []).filter((j) => j.hole).length).toBeGreaterThan(0);
+    expect(byZoom.get(7)?.length).toBeGreaterThanOrEqual(24);
+    expect(byZoom.get(7)?.length).toBeLessThanOrEqual(25);
+    expect((byZoom.get(7) ?? []).filter((j) => j.hole).length).toBeGreaterThan(0);
     // the finest ring has no holes
     for (const j of byZoom.get(13) ?? []) expect(j.hole).toBeUndefined();
     // some mid tiles have holes (the ones under the near block)
@@ -137,5 +140,18 @@ describe("planRings", () => {
     const rimKeysBefore = new Set(jobs.filter((j) => j.rim).map((j) => j.jobKey));
     const rimKeysAfter = new Set(moved.filter((j) => j.rim).map((j) => j.jobKey));
     expect(rimKeysAfter).not.toEqual(rimKeysBefore);
+  });
+});
+
+describe("ringsForSpeed", () => {
+  it("keeps every ring when slow and only the coarse ones when flying", () => {
+    expect(ringsForSpeed(100)).toBe(DEFAULT_RINGS);
+    expect(ringsForSpeed(5_000).map((r) => [r.zoom, r.ring])).toEqual([
+      [9, 1],
+      [7, 2],
+    ]);
+    expect(ringsForSpeed(50_000).map((r) => [r.zoom, r.ring])).toEqual([[7, 1]]);
+    // never drops everything
+    expect(ringsForSpeed(50_000, DEFAULT_RINGS.slice(2)).map((r) => r.zoom)).toEqual([9, 7]);
   });
 });

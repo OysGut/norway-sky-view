@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  CAMERA_HEIGHT_MAX,
   DEFAULT_VIEW_SETTINGS,
   MAP_STORE_STORAGE_KEY,
   currentViewSettings,
@@ -137,7 +138,7 @@ describe("sanitizeViewSettings", () => {
     expect(v.bend.drama).toBe(1);
     expect(v.bend.horizonDistanceM).toBe(fb.bend.horizonDistanceM);
     expect(v.bend.physicalCurvature).toBe(false);
-    expect(v.cameraHeight).toBe(20_000);
+    expect(v.cameraHeight).toBe(CAMERA_HEIGHT_MAX);
     expect(v.cameraMode).toBe("terrain");
     expect(v.cameraPitch).toBe(0);
   });

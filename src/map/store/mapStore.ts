@@ -11,6 +11,8 @@
 import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 
+import { planFlight, type Flight } from "../scenes/flight";
+
 export type MapMode = "bent" | "classic3d" | "2d";
 export const MAP_MODES: readonly MapMode[] = ["bent", "classic3d", "2d"];
 
@@ -22,9 +24,9 @@ export const MAP_MODES: readonly MapMode[] = ["bent", "classic3d", "2d"];
 export type CameraMode = "terrain" | "absolute";
 
 export const CAMERA_HEIGHT_MIN = 200;
-export const CAMERA_HEIGHT_MAX = 20_000;
+export const CAMERA_HEIGHT_MAX = 100_000;
 export const CAMERA_ALTITUDE_MIN = 200;
-export const CAMERA_ALTITUDE_MAX = 20_000;
+export const CAMERA_ALTITUDE_MAX = 100_000;
 /** Camera tilt from straight down, degrees. 0 = top-down, 80 = almost horizontal. */
 export const CAMERA_PITCH_MIN = 0;
 export const CAMERA_PITCH_MAX = 80;
@@ -99,6 +101,8 @@ export interface MapState extends ViewSettings {
   viewSettingsByMode: Record<MapMode, ViewSettings>;
   presets: ViewPreset[];
   layers: Record<string, boolean>;
+  /** Flight in progress (fly-to); the scene samples it every frame. Null when idle. */
+  flight: Flight | null;
   setUserPoint: (userPoint: UserPoint) => void;
   setHeading: (heading: number) => void;
   setCameraHeight: (cameraHeight: number) => void;
@@ -120,6 +124,10 @@ export interface MapState extends ViewSettings {
   deletePreset: (id: string) => void;
   setLayer: (key: string, enabled: boolean) => void;
   setLayers: (layers: Record<string, boolean>) => void;
+  /** Start a smooth flight to `target` (optionally with a new heading / arrival height). */
+  flyTo: (target: UserPoint, options?: { heading?: number; height?: number }) => void;
+  /** Stop the current flight where it is (any manual navigation does this). */
+  cancelFlight: () => void;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -312,6 +320,7 @@ export const useMapStore = create<MapState>()(
       viewSettingsByMode: defaultViewSettingsByMode(),
       presets: [],
       layers: {},
+      flight: null,
       setUserPoint: (userPoint) => set({ userPoint }),
       setHeading: (heading) => set({ heading }),
       setCameraHeight: (cameraHeight) =>
@@ -373,6 +382,19 @@ export const useMapStore = create<MapState>()(
       setLayer: (key: string, enabled: boolean) =>
         set((state) => ({ layers: { ...state.layers, [key]: enabled } })),
       setLayers: (layers: Record<string, boolean>) => set({ layers }),
+      flyTo: (target, options) => {
+        const s = get();
+        const flight = planFlight(s.userPoint, target, {
+          now: performance.now(),
+          fromHeight: effectiveCameraHeight(s),
+          toHeight: options?.height,
+          fromHeading: s.heading,
+          toHeading: options?.heading,
+          maxHeight: CAMERA_HEIGHT_MAX,
+        });
+        set({ flight });
+      },
+      cancelFlight: () => set((state) => (state.flight ? { flight: null } : {})),
     }),
     {
       name: MAP_STORE_STORAGE_KEY,
