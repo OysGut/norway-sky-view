@@ -26,8 +26,9 @@ const NAV_KEYS = new Set([
 
 /**
  * True when the focused element should keep the key for itself: text fields take
- * every key; buttons, sliders and toggle groups take the arrow keys (roving focus,
- * slider steps) but let WASD/Q/E through so the map still moves after a click.
+ * every key; sliders and roving-focus groups (radio/tab/menu) take the arrow keys
+ * but let WASD/Q/E through. Plain buttons never swallow navigation keys, so the
+ * map keeps moving after a click on a panel button.
  */
 function isTypingOrAdjusting(active: Element | null, key: string): boolean {
   if (!active || active === document.body) return false;
@@ -35,9 +36,16 @@ function isTypingOrAdjusting(active: Element | null, key: string): boolean {
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   if ((active as HTMLElement).isContentEditable) return true;
   if (!key.startsWith("arrow")) return false;
-  if (tag === "BUTTON") return true;
   const role = active.getAttribute("role");
-  return role === "slider" || role === "radio" || role === "switch" || role === "tab";
+  return (
+    role === "slider" ||
+    role === "radio" ||
+    role === "tab" ||
+    role === "menuitem" ||
+    role === "listbox" ||
+    role === "option" ||
+    role === "combobox"
+  );
 }
 
 export interface KeyboardNavigation {
