@@ -16,7 +16,11 @@ interface Pending {
   reject: (error: Error) => void;
 }
 
-const POOL_SIZE = 3;
+/** One worker per spare core, between 2 and 4. */
+const POOL_SIZE =
+  typeof navigator !== "undefined" && navigator.hardwareConcurrency
+    ? Math.max(2, Math.min(4, navigator.hardwareConcurrency - 2))
+    : 3;
 const workers: Worker[] = [];
 let nextWorker = 0;
 let nextId = 0;
@@ -42,25 +46,34 @@ function createWorker(): Worker {
   return worker;
 }
 
-function pickWorker(): Worker {
+/** Stable small hash of a tile key, so one tile always lands on the same worker. */
+function affinity(z: number, x: number, y: number): number {
+  let h = (z * 73856093) ^ (x * 19349663) ^ (y * 83492791);
+  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+function pickWorker(tile?: { z: number; x: number; y: number }): Worker {
   if (typeof window === "undefined") {
     throw new Error("terrariumClient is client-side only");
   }
-  if (workers.length < POOL_SIZE) {
-    const w = createWorker();
-    workers.push(w);
-    return w;
-  }
-  const w = workers[nextWorker % workers.length];
-  nextWorker++;
+  while (workers.length < POOL_SIZE) workers.push(createWorker());
+  // Each worker keeps recently decoded tiles in memory; sending every request for a
+  // tile (its re-meshes with a new rim or hole included) to the same worker makes
+  // those re-meshes memory hits.
+  const index = tile ? affinity(tile.z, tile.x, tile.y) : nextWorker++;
+  const w = workers[index % workers.length];
   if (!w) throw new Error("worker pool empty");
   return w;
 }
 
-function send(request: WorkerRequest): Promise<WorkerResponse> {
+function send(
+  request: WorkerRequest,
+  tile?: { z: number; x: number; y: number },
+): Promise<WorkerResponse> {
   return new Promise<WorkerResponse>((resolve, reject) => {
     pending.set(request.id, { resolve, reject });
-    pickWorker().postMessage(request);
+    pickWorker(tile).postMessage(request);
   });
 }
 
@@ -71,7 +84,10 @@ export async function requestTile(
   y: number,
   synthetic = false,
 ): Promise<DecodedTile> {
-  const response = await send({ type: "decode", id: `d${nextId++}`, z, x, y, synthetic });
+  const response = await send(
+    { type: "decode", id: `d${nextId++}`, z, x, y, synthetic },
+    { z, x, y },
+  );
   if (response.type !== "decoded") throw new Error("unexpected worker response");
   const { type: _type, id: _id, ...tile } = response;
   return tile;
@@ -81,7 +97,7 @@ export type MeshResult = Omit<MeshSuccess, "type" | "id">;
 
 /** Fetch (or read from cache), decode and mesh one tile off the main thread. */
 export async function requestMesh(options: Omit<MeshRequest, "type" | "id">): Promise<MeshResult> {
-  const response = await send({ type: "mesh", id: `m${nextId++}`, ...options });
+  const response = await send({ type: "mesh", id: `m${nextId++}`, ...options }, options);
   if (response.type !== "meshed") throw new Error("unexpected worker response");
   const { type: _type, id: _id, ...result } = response;
   return result;

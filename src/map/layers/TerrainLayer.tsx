@@ -39,14 +39,19 @@ const REPLAN_DISTANCE_M = 400;
 /** Smoothing of the speed estimate (per second). */
 const SPEED_SMOOTHING = 6;
 
-/** Concurrent mesh requests in flight. */
-const MAX_IN_FLIGHT = 6;
+/** Concurrent mesh requests in flight (re-meshes are memory hits in the workers, so this can be generous). */
+const MAX_IN_FLIGHT = 8;
 /**
  * Tiles are kept (hidden) after they leave the plan so coming back shows them at once
  * instead of re-fetching and re-meshing; beyond this many records the least recently
  * wanted ones are evicted. ≈ 100 records are in the plan at any time.
  */
 const MAX_RECORDS = 350;
+/**
+ * Loaded map textures are kept after their last tile record is evicted, up to this many
+ * in total (≈ 350 KB of GPU memory each); the least recently used unused ones go first.
+ */
+const MAX_TEXTURES = 450;
 /** Tiles within this distance of a favourite place (searched / flown to) are evicted last. */
 const FAVOURITE_RADIUS_M = 25_000;
 /** Eviction priority bonus for favourites, in ms of "recency". */
@@ -92,16 +97,19 @@ interface TileRecord {
   meshAttempts: number;
   /** Earliest time (performance.now()) a failed mesh may be retried. */
   meshRetryAt: number;
-  /** Failed texture attempts so far. */
-  textureAttempts: number;
+  /** Kept from before an origin re-base: shown (moved into the new frame) only until its area is replaced, then dropped. */
+  stale: boolean;
 }
 
 /** Owns every terrain tile mesh under one group. */
 class TerrainManager {
   readonly group = new THREE.Group();
   private readonly tiles = new Map<string, TileRecord>();
-  /** Loaded textures by tile key, shared by every record of that tile. */
-  private readonly textures = new Map<string, THREE.Texture>();
+  /** Loaded textures by tile key, shared by every record of that tile; kept (LRU) after the records go. */
+  private readonly textures = new Map<string, { texture: THREE.Texture; lastUsedAt: number }>();
+  /** Texture loads in flight or waiting to retry, by tile key, with the attempts made. */
+  private readonly textureLoads = new Map<string, number>();
+  private staleSerial = 0;
   private readonly textureLoader = new THREE.TextureLoader();
   private favourites: readonly LonLat[] = [];
   private inFlight = 0;
@@ -125,11 +133,34 @@ class TerrainManager {
     this.textureLoader.setCrossOrigin("anonymous");
   }
 
-  /** Move the ENU origin: every tile is placed relative to it, so all tiles are rebuilt. */
+  /**
+   * Move the ENU origin. Every tile is meshed relative to it, so all tiles are re-meshed —
+   * but the ready ones are kept, shifted into the new frame, and shown until their
+   * replacements are ready, so a re-base (after a long drag) never blanks the view.
+   * Heights and textures are still in memory, so the re-mesh is quick.
+   */
   rebase(origin: LonLat): void {
+    const shift = lonLatToEnu(origin, this.origin);
     this.origin = origin;
     this.lastPlanAt = null;
-    for (const key of [...this.tiles.keys()]) this.drop(key);
+    for (const [key, record] of [...this.tiles]) {
+      // only what is on screen is worth carrying over; hidden retained tiles would need a
+      // re-mesh for the new origin anyway (their heights and textures stay cached)
+      if (record.state !== "ready" || !record.mesh?.visible) {
+        this.drop(key);
+        continue;
+      }
+      record.mesh.position.x += shift.east;
+      record.mesh.position.z -= shift.north;
+      // already stale from an earlier re-base whose replacements are still loading: keep it too
+      if (record.stale) continue;
+      record.stale = true;
+      record.wanted = false;
+      this.tiles.delete(key);
+      const staleKey = `stale${this.staleSerial++}:${key}`;
+      record.mesh.name = staleKey;
+      this.tiles.set(staleKey, record);
+    }
   }
 
   get currentOrigin(): LonLat {
@@ -262,16 +293,22 @@ class TerrainManager {
         blockers: new Set(),
         meshAttempts: 0,
         meshRetryAt: 0,
-        textureAttempts: 0,
+        stale: false,
       };
-      // a texture already loaded for this tile (earlier hole/rim) is reused at once
-      const texture = this.textures.get(tileKey);
-      if (texture) this.applyTexture(record, texture);
       this.tiles.set(job.jobKey, record);
+      // a texture already loaded for this tile (earlier hole/rim, or evicted records) is
+      // reused at once; otherwise it starts loading now, in parallel with the mesh
+      if (!this.synthetic) this.ensureTexture(record);
     }
     this.assignBlockers();
+    this.dropReplacedStale();
     this.evict();
     this.updateVisibility();
+  }
+
+  /** Stale (pre-re-base) records whose area is fully replaced by ready tiles are dropped. */
+  private dropReplacedStale(): void {
+    for (const [key, r] of [...this.tiles]) if (r.stale && r.blockers.size === 0) this.drop(key);
   }
 
   /** Each unwanted record stays visible while wanted records covering its area are still loading. */
@@ -289,6 +326,7 @@ class TerrainManager {
   /** A wanted record became ready: it no longer blocks the hiding of the tiles it replaces. */
   private releaseBlocker(jobKey: string): void {
     for (const r of this.tiles.values()) r.blockers.delete(jobKey);
+    this.dropReplacedStale();
   }
 
   private updateVisibility(): void {
@@ -393,8 +431,6 @@ class TerrainManager {
       record.state = "ready";
       this.releaseBlocker(job.jobKey);
       this.updateVisibility();
-
-      if (!this.synthetic && !record.texture) this.loadTexture(record);
     } catch (error) {
       record.state = "failed";
       record.meshAttempts++;
@@ -417,55 +453,87 @@ class TerrainManager {
     record.material.needsUpdate = true;
   }
 
-  private loadTexture(record: TileRecord): void {
-    const { job } = record;
+  /** Give the record its tile's texture: from the texture cache, or by starting (at most one) load. */
+  private ensureTexture(record: TileRecord): void {
     const cached = this.textures.get(record.tileKey);
     if (cached) {
-      this.applyTexture(record, cached);
+      cached.lastUsedAt = performance.now();
+      this.applyTexture(record, cached.texture);
       return;
     }
+    if (this.textureLoads.has(record.tileKey)) return; // applied to every record when it lands
+    this.loadTexture(record.tileKey, record.job, 1);
+  }
+
+  private hasLiveRecord(tileKey: string): boolean {
+    for (const r of this.tiles.values()) if (r.tileKey === tileKey) return true;
+    return false;
+  }
+
+  private loadTexture(tileKey: string, job: TileJob, attempt: number): void {
+    this.textureLoads.set(tileKey, attempt);
     this.textureLoader.load(
       kartverketTileUrl("topo", job.z, job.x, job.y),
       (texture) => {
-        const existing = this.textures.get(record.tileKey);
-        if (record.disposed || existing) {
+        this.textureLoads.delete(tileKey);
+        if (this.textures.has(tileKey)) {
           texture.dispose();
-          if (existing && !record.disposed) this.applyTexture(record, existing);
           return;
         }
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.anisotropy = this.maxAnisotropy;
         texture.minFilter = THREE.LinearMipmapLinearFilter;
         texture.needsUpdate = true;
-        this.textures.set(record.tileKey, texture);
+        this.textures.set(tileKey, { texture, lastUsedAt: performance.now() });
         // every record of this tile (old and new hole/rim) gets it
         for (const r of this.tiles.values()) {
-          if (r.tileKey === record.tileKey && !r.texture) this.applyTexture(r, texture);
+          if (r.tileKey === tileKey && !r.texture) this.applyTexture(r, texture);
         }
-        record.textureAttempts = 0;
+        this.trimTextures();
       },
       undefined,
       () => {
-        record.textureAttempts++;
-        if (record.disposed || record.textureAttempts >= TEXTURE_MAX_ATTEMPTS) {
-          console.warn(
-            `[terrain] texture failed, giving up after ${record.textureAttempts} attempt(s): ${job.jobKey}`,
-          );
+        if (!this.hasLiveRecord(tileKey) || attempt >= TEXTURE_MAX_ATTEMPTS) {
+          this.textureLoads.delete(tileKey);
+          if (attempt >= TEXTURE_MAX_ATTEMPTS) {
+            console.warn(
+              `[terrain] texture failed, giving up after ${attempt} attempt(s): ${tileKey}`,
+            );
+          }
           return;
         }
-        const delay = backoffMs(
-          record.textureAttempts,
-          TEXTURE_RETRY_BASE_MS,
-          TEXTURE_RETRY_BASE_MS * 4,
-        );
+        const delay = backoffMs(attempt, TEXTURE_RETRY_BASE_MS, TEXTURE_RETRY_BASE_MS * 4);
         console.warn(
-          `[terrain] texture failed (attempt ${record.textureAttempts}, retrying in ${delay}ms): ${job.jobKey}`,
+          `[terrain] texture failed (attempt ${attempt}, retrying in ${delay}ms): ${tileKey}`,
         );
         setTimeout(() => {
-          if (!record.disposed) this.loadTexture(record);
+          if (this.disposed || !this.hasLiveRecord(tileKey)) {
+            this.textureLoads.delete(tileKey);
+            return;
+          }
+          this.loadTexture(tileKey, job, attempt + 1);
         }, delay);
       },
     );
+  }
+
+  /** Dispose the least recently used textures that no record uses, beyond MAX_TEXTURES. */
+  private trimTextures(): void {
+    if (this.textures.size <= MAX_TEXTURES) return;
+    const inUse = new Set<string>();
+    for (const r of this.tiles.values()) inUse.add(r.tileKey);
+    const now = performance.now();
+    for (const [key, entry] of this.textures) if (inUse.has(key)) entry.lastUsedAt = now;
+    const unused = [...this.textures]
+      .filter(([key]) => !inUse.has(key))
+      .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
+    let excess = this.textures.size - MAX_TEXTURES;
+    for (const [key, entry] of unused) {
+      if (excess <= 0) break;
+      entry.texture.dispose();
+      this.textures.delete(key);
+      excess--;
+    }
   }
 
   private applyWireframe(wireframe: boolean): void {
@@ -487,18 +555,19 @@ class TerrainManager {
     }
     record.material.dispose();
     this.tiles.delete(key);
-    // the texture lives as long as any record of the tile does
-    let shared = false;
-    for (const r of this.tiles.values()) if (r.tileKey === record.tileKey) shared = true;
-    if (!shared) {
-      this.textures.get(record.tileKey)?.dispose();
-      this.textures.delete(record.tileKey);
-    }
+    // the texture outlives the record in the texture cache (see trimTextures)
+    const entry = this.textures.get(record.tileKey);
+    if (entry) entry.lastUsedAt = performance.now();
     for (const r of this.tiles.values()) r.blockers.delete(key);
   }
 
+  private disposed = false;
+
   dispose(): void {
+    this.disposed = true;
     for (const key of [...this.tiles.keys()]) this.drop(key);
+    for (const entry of this.textures.values()) entry.texture.dispose();
+    this.textures.clear();
   }
 
   get stats(): {

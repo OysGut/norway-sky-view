@@ -15,6 +15,7 @@ import {
 } from "../terrainLOD/heightOracle";
 import { buildTerrainMesh, type MeshRim, type RimEdge } from "../terrainLOD/mesher";
 import type { RimSpec } from "../terrainLOD/rings";
+import { MemoryLru } from "../terrainLOD/memoryLru";
 import { TileCache } from "../terrainLOD/tileCache";
 import {
   terrariumTileUrl,
@@ -32,6 +33,14 @@ interface WorkerScope {
 
 const scope = self as unknown as WorkerScope;
 const cache = new TileCache();
+/**
+ * Decoded tiles kept in memory by this worker (≈ 256 KB each). Re-meshing a tile whose
+ * rim or hole changed — most tiles near the user each time the rings shift — reads its
+ * own and its neighbours' heights from here instead of IndexedDB. The arrays are shared
+ * and must never be transferred or written to; decode replies send a copy.
+ */
+const MEMORY_TILES = 128;
+const memory = new MemoryLru<Heights>(MEMORY_TILES);
 
 interface Heights {
   width: number;
@@ -80,13 +89,13 @@ async function fetchAndDecode(z: number, x: number, y: number): Promise<Heights>
   };
 }
 
-async function loadHeights(z: number, x: number, y: number): Promise<Heights> {
+async function readHeights(z: number, x: number, y: number): Promise<Heights> {
   const hit = await cache.get({ z, x, y });
   if (hit) {
     return {
       width: hit.width,
       height: hit.height,
-      heights: hit.heights.slice(), // copy: the buffer may be transferred to the main thread
+      heights: hit.heights,
       fetchMs: 0,
       decodeMs: 0,
       bytes: hit.bytes,
@@ -94,9 +103,21 @@ async function loadHeights(z: number, x: number, y: number): Promise<Heights> {
     };
   }
   const fresh = await fetchAndDecode(z, x, y);
-  // store a copy: the original buffer may be transferred away below
-  void cache.put({ z, x, y }, fresh.width, fresh.height, fresh.heights.slice());
+  void cache.put({ z, x, y }, fresh.width, fresh.height, fresh.heights);
   return fresh;
+}
+
+/** Heights for one tile: memory, then IndexedDB, then the network. The array is shared — read only. */
+async function loadHeights(z: number, x: number, y: number): Promise<Heights> {
+  const key = `${z}/${x}/${y}`;
+  const fromMemory = memory.peek(key) !== undefined;
+  const h = await memory.getOrLoad(key, () => readHeights(z, x, y));
+  return fromMemory ? { ...h, fetchMs: 0, decodeMs: 0, cached: true } : h;
+}
+
+/** Synthetic heights, memoised like real ones (the oracle asks for neighbours repeatedly). */
+function loadSynthetic(z: number, x: number, y: number): Promise<Heights> {
+  return memory.getOrLoad(`s/${z}/${x}/${y}`, () => Promise.resolve(syntheticHeights(z, x, y)));
 }
 
 /**
@@ -127,8 +148,9 @@ function syntheticHeights(z: number, x: number, y: number, size = 256): Heights 
 
 async function handleDecode(request: DecodeRequest): Promise<WorkerResponse> {
   const { id, z, x, y } = request;
-  const h = request.synthetic ? syntheticHeights(z, x, y) : await loadHeights(z, x, y);
-  return { type: "decoded", id, z, x, y, ...h };
+  const h = request.synthetic ? await loadSynthetic(z, x, y) : await loadHeights(z, x, y);
+  // the reply transfers its buffer: send a copy, the cached array stays here
+  return { type: "decoded", id, z, x, y, ...h, heights: h.heights.slice() };
 }
 
 /** Load one tile's heights, in the shape the height oracle wants. */
@@ -138,7 +160,7 @@ async function loadOracleTile(
   y: number,
   synthetic: boolean,
 ): Promise<OracleTile> {
-  const h = synthetic ? syntheticHeights(z, x, y) : await loadHeights(z, x, y);
+  const h = synthetic ? await loadSynthetic(z, x, y) : await loadHeights(z, x, y);
   return { width: h.width, height: h.height, heights: h.heights };
 }
 
@@ -180,7 +202,7 @@ async function buildRim(
 
 async function handleMesh(request: MeshRequest): Promise<WorkerResponse> {
   const { id, z, x, y, synthetic } = request;
-  const h = synthetic ? syntheticHeights(z, x, y) : await loadHeights(z, x, y);
+  const h = synthetic ? await loadSynthetic(z, x, y) : await loadHeights(z, x, y);
   const own: OracleTile = { width: h.width, height: h.height, heights: h.heights };
   const meshStart = performance.now();
 
